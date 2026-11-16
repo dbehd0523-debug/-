@@ -169,6 +169,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <li>유튜브 링크는 스피커로 한 번 틀어서 마이크로 듣고 소리에 맞는 노트를 만들거나, 박자를 몇 번 두드려서 그 빠르기로 노트를 만듭니다.</li>
         <li>mp3 같은 오디오 파일과 mp4 같은 동영상 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
         <li>한 번 넣은 노래는 이 기기에 저장되어, 다음부터는 저장된 노래 목록에서 바로 고를 수 있습니다.</li>
+        <li>양손 엄지로 치는 게임입니다. 왼쪽 두 줄은 왼손 엄지, 오른쪽 두 줄은 오른손 엄지로 누르세요.</li>
+        <li>화살표가 있는 긴 노트는 누른 채로 옆줄로 밀어야 합니다.</li>
         <li>긴 노트는 끝까지 누르고 있어야 합니다. 놓치면 게이지가 줄고, 바닥나면 곡이 멈춥니다.</li>
         <li>아이폰은 무음 스위치를 꺼야 소리가 납니다.</li>
         <li>블루투스 이어폰은 소리가 늦게 들려서, 시작 전에 싱크를 맞춰 주세요.</li>
@@ -296,6 +298,14 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
   <div class="overlay" id="pauseOverlay" hidden>
     <div class="col">
       <h2>일시정지</h2>
+      <div>
+        <p class="label" style="margin-bottom:8px">싱크 · 노트가 소리보다 먼저 오면 +</p>
+        <div class="stepper">
+          <button type="button" id="pOffMinus" aria-label="싱크 10ms 줄이기">−</button>
+          <output id="pOffOut">0 ms</output>
+          <button type="button" id="pOffPlus" aria-label="싱크 10ms 늘리기">+</button>
+        </div>
+      </div>
       <button class="btn big wide" type="button" id="resumeBtn">계속하기</button>
       <button class="btn ghost wide" type="button" id="restartBtn">처음부터 다시</button>
       <button class="btn ghost wide" type="button" id="quitBtn">그만하기</button>
@@ -321,6 +331,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <div class="stat j-m"><b id="resM">0</b><span>MISS</span></div>
     </div>
     <button class="btn big wide" type="button" id="againBtn">다시 하기</button>
+    <p class="msg" id="resSync" role="status"></p>
     <p class="hint" id="diag"></p>
     <button class="btn ghost wide" type="button" id="newBtn">다른 노래 고르기</button>
   </div>
@@ -331,12 +342,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 const $ = id => document.getElementById(id);
 const LANES = ["#ff6b4a", "#ffc43d", "#3ddc97", "#4cc3ff"];
 const DIFFS = {
-  // w: how much a note on the beat / half beat / quarter beat / off the grid is preferred.
-  // Hand-made charts sit almost entirely on beats and half beats in equal measure, so those two weigh the same.
+  // w: mild preference for beat / half beat / quarter beat / off-grid positions. How clearly the sound stands out
+  // decides first; the grid only breaks ties, so a clear sound is never passed over for a faint one on the beat.
   // nps is the average over the song; a hand-made top-difficulty chart measured about 2.5 notes a second
-  easy:   { minGap: 0.4,  nps: 1.5, chords: 0,    w: [5, 1.2, 0.2, 0.2] },
-  normal: { minGap: 0.2,  nps: 2.4, chords: 0.12, w: [3, 3, 0.5, 0.4] },
-  hard:   { minGap: 0.12, nps: 3.6, chords: 0.18, w: [2.5, 2.5, 1.3, 0.8] }
+  easy:   { minGap: 0.4,  nps: 1.5, chords: 0,    slides: false, w: [1.8, 1, 0.5, 0.5] },
+  normal: { minGap: 0.2,  nps: 2.4, chords: 0.12, slides: true,  w: [1.3, 1.25, 0.8, 0.7] },
+  hard:   { minGap: 0.12, nps: 3.6, chords: 0.18, slides: true,  w: [1.2, 1.2, 1.05, 0.9] }
 };
 const WIN = { perfect: 0.05, great: 0.1, good: 0.16 };
 const APPROACH = 1.25, LEAD_IN = 2.5, FEVER_LEN = 8;
@@ -508,9 +519,9 @@ function renderDemo() {
     }
     if (!intro) {
       for (let s = 0; s < 8; s++) {
-        if (brk) {   // breakdown: long held notes, two per bar
+        if (brk) {   // breakdown: held notes, two per bar, the first tied into the second
           if (s % 4 === 0) {
-            const o = oc.createOscillator(), f = oc.createBiquadFilter(), g = oc.createGain(), t = bt + s * beat / 2, len = beat * 1.8;
+            const o = oc.createOscillator(), f = oc.createBiquadFilter(), g = oc.createGain(), t = bt + s * beat / 2, len = beat * (s === 0 ? 2.1 : 1.7);   // first note runs into the second: a slide
             o.type = "sawtooth"; o.frequency.value = arps[c][s === 0 ? 0 : 2]; f.type = "lowpass"; f.frequency.value = 1800;
             g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.2, t + 0.01);
             g.gain.setValueAtTime(0.2, t + len - 0.06); g.gain.linearRampToValueAtTime(0.0001, t + len);
@@ -528,7 +539,7 @@ function renderDemo() {
 }
 
 /* ---------- saved songs: files and tapped YouTube tempos are kept in this browser (IndexedDB) ---------- */
-const AN_VERSION = 5;   // bump when the analysis output changes so saved songs get re-analyzed
+const AN_VERSION = 6;   // bump when the analysis output changes so saved songs get re-analyzed
 function dbOpen() {
   return new Promise((res, rej) => {
     let r; try { r = indexedDB.open("beatdrop", 1); } catch (e) { rej(e); return; }
@@ -865,7 +876,7 @@ function buildGridChart() {
       const ch = pat[i]; if (ch === ".") continue;
       const t = bt + i * step; if (t > dur - 2) break;
       let lane = fig[k % fig.length]; k++;
-      if (i > 0 && pat[i - 1] !== "." && lane === lastLane) { lane = fig[k % fig.length]; k++; if (lane === lastLane) lane = (lane + 1) % 4; }   // no same-lane hit a sixteenth apart
+      if (i > 0 && pat[i - 1] !== "." && (lane < 2) === (lastLane < 2)) lane = lane < 2 ? lane + 2 : lane - 2;   // a sixteenth apart: the other thumb takes it
       lastLane = lane; if (mirror) lane = 3 - lane;
       const n = { t, lane, state: 0 };
       if (ch === "L") n.end = t + Math.max(0.3, step * 6);
@@ -1016,7 +1027,11 @@ async function analyze(buffer, onProgress) {
   const N = 1024, H = 256, bins = N / 2;
   const frames = Math.max(0, Math.floor((len - N) / H) + 1);
   const flux = new Float32Array(frames), cent = new Float32Array(frames), lowf = new Float32Array(frames), eng = new Float32Array(frames);
-  const lowBins = Math.max(3, Math.round(250 / (sr / N)));
+  // What listeners follow: the beat is heard best in the low range (kick, bass) and the tune in the upper voice,
+  // and the ear is most sensitive around 1-5 kHz; hi-hats and cymbals above that are texture. So the rise in sound
+  // is measured in four bands, each against its own average, and combined with those weights.
+  const hzBin = sr / N, lowBins = Math.max(3, Math.round(200 / hzBin)), midBins = Math.round(1200 / hzBin), presBins = Math.round(5000 / hzBin);
+  const bK = lowf, bM = new Float32Array(frames), bP = new Float32Array(frames), bH = new Float32Array(frames);
   const win = new Float32Array(N);
   for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
   const re = new Float32Array(N), im = new Float32Array(N);
@@ -1027,16 +1042,24 @@ async function analyze(buffer, onProgress) {
     for (let i = 0; i < N; i++) { const x = mono[o + i] * win[i]; re[i] = x; im[i] = 0; en += x * x; }
     eng[f] = en;
     fft(re, im);
-    let sum = 0, wsum = 0, low = 0;
+    let sum = 0, wsum = 0, low = 0, mid = 0, pres = 0, high = 0;
     for (let k = 1; k < bins; k++) {
       const m = Math.log1p(20 * Math.sqrt(re[k] * re[k] + im[k] * im[k]));
       cur[k] = m;
       const d = m - prev[k];
-      if (d > 0) { sum += d; wsum += d * k; if (k <= lowBins) low += d; }
+      if (d > 0) {
+        if (k <= lowBins) low += d; else if (k <= midBins) mid += d; else if (k <= presBins) pres += d; else high += d;
+        if (k <= presBins) { sum += d; wsum += d * k; }   // brightness is read below 5 kHz, where pitch lives
+      }
     }
-    flux[f] = sum; lowf[f] = low; cent[f] = sum > 0 ? wsum / sum : 0;
+    bK[f] = low; bM[f] = mid; bP[f] = pres; bH[f] = high; cent[f] = sum > 0 ? wsum / sum : 0;
     const t = prev; prev = cur; cur = t;
     if (f % 600 === 599) { onProgress(f / frames); await tick(); }
+  }
+  {
+    const mean = a => { let t = 0; for (let i = 0; i < frames; i++) t += a[i]; return t / Math.max(1, frames) + 1e-9; };
+    const mK = mean(bK), mM = mean(bM), mP = mean(bP), mH = mean(bH);
+    for (let i = 0; i < frames; i++) flux[i] = 1.3 * bK[i] / mK + 1.0 * bM[i] / mM + 1.5 * bP[i] / mP + 0.3 * bH[i] / mH;
   }
   // onset envelope: how far each frame rises above its local average
   const fr = sr / H, w = Math.round(0.4 * fr);
@@ -1090,7 +1113,6 @@ async function analyze(buffer, onProgress) {
   const beats = [];
   for (let i = end; i >= 0; i = back[i]) beats.push((i * H + N / 2) / sr);
   beats.reverse();
-
   // onsets: local maxima of the flux that stand out from their surroundings
   const out = [];
   let bi = 0;
@@ -1122,7 +1144,7 @@ function buildChart() {
   const allC = G.onsets.map(o => o.c).sort((a, b) => a - b), medC = allC.length ? allC[allC.length >> 1] : 0;
   const sec = new Map();
   for (const o of G.onsets) { const k = Math.floor(o.bi / 16); if (!sec.has(k)) sec.set(k, [0, 0]); sec.get(k)[o.c > medC ? 1 : 0] += o.v; }
-  const lead = o => { const sd = sec.get(Math.floor(o.bi / 16)), side = o.c > medC ? 1 : 0; return sd[side] >= sd[1 - side] ? 1.5 : 1; };
+  const lead = o => { const sd = sec.get(Math.floor(o.bi / 16)), side = o.c > medC ? 1 : 0; return sd[side] >= sd[1 - side] ? 1.25 : 1; };
   // rhythm that repeats: inside each 4 bars, the eighth-note slots of the bar that carry a sound in most bars get
   // priority, so the same one-bar rhythm comes back instead of a different scatter every bar
   const pop = new Map();
@@ -1131,7 +1153,7 @@ function buildChart() {
     if (!(o.qx >= 0) || o.qx % 2) return 1;
     const base = Math.floor(o.qx / 64) * 8; let mx = 1;
     for (let i = 0; i < 8; i++) mx = Math.max(mx, pop.get(base + i) || 0);
-    return 1 + 0.8 * (pop.get(base + (o.qx >> 1) % 8) || 0) / mx;
+    return 1 + 0.4 * (pop.get(base + (o.qx >> 1) % 8) || 0) / mx;
   };
   // loudness is judged against the surrounding 8 seconds, with only a mild pull toward the loud parts of the song:
   // busy sections get more notes and calm ones fewer, but a quiet passage still gets the notes it needs
@@ -1143,7 +1165,9 @@ function buildChart() {
     vn.set(os[i], os[i].v / lm * Math.pow(lm / gm, 0.3));
   }
   const score = o => vn.get(o) * d.w[o.g] * lead(o) * motif(o);
-  const cand = G.onsets.filter(o => o.t > 0.3 && o.t < dur - 0.3).sort((a, b) => score(b) - score(a));
+  // only sounds that clearly stand out become notes: well above their immediate surroundings (s) and not faint
+  // next to the other sounds of the passage (vn). The density numbers are ceilings, not targets.
+  const cand = G.onsets.filter(o => o.t > 0.3 && o.t < dur - 0.3 && o.s > 1.5 && vn.get(o) > 0.45).sort((a, b) => score(b) - score(a));
   // every 2 seconds first gets its own best few notes (half the average density), so no passage is left empty;
   // the rest of the budget then goes to the best remaining notes anywhere
   const floorN = Math.ceil(d.nps), seen = new Map(), first = [], rest = [];
@@ -1161,6 +1185,8 @@ function buildChart() {
     if (ok) { taken.set(k, o.t); picked.push(o); bucketN.set(bk, (bucketN.get(bk) || 0) + 1); }
   }
   picked.sort((a, b) => a.t - b.t);
+  const pickedSet = new Set(picked);
+  // The game is played with two thumbs: lanes 0-1 are the left thumb's, lanes 2-3 the right thumb's.
   // Lanes, the way hand-made charts lay them out: notes come in phrases separated by rests; inside a phrase the
   // same lane is hit two (sometimes three) times and then the figure steps to the next lane, rising when the sound
   // gets brighter; a phrase ends on an accent, which becomes a two-lane chord.
@@ -1183,7 +1209,8 @@ function buildChart() {
       for (let k = i + 1; k <= j; k++) {
         const r = picked[k].c / (picked[k - 1].c || 1), gap = picked[k].t - picked[k - 1].t;
         const steady = r > 0.97 && r < 1.03;
-        if (gap >= 0.15 && run < (steady ? 3 : 2)) run++;
+        if (gap < 0.17) { lane = lane < 2 ? lane + 2 : lane - 2; run = 1; }   // too quick for one thumb: the other thumb takes it
+        else if (run < (steady ? 3 : 2)) run++;
         else {
           let st = r > 1.06 ? 1 : r < 0.94 ? -1 : dir;
           if (lane + st > 3 || lane + st < 0) st = -st;
@@ -1204,25 +1231,49 @@ function buildChart() {
     notes.push({ t: o.t, lane, state: 0 });
     if (chordAt.has(k)) notes.push({ t: o.t, lane: lane < 2 ? lane + 2 : lane - 2, state: 0 });
   });
-  // long notes: when nothing else follows for a while and the sound keeps ringing, hold instead of tap
+  // long notes and slides, read from how the sound rings on after a note
   const E = G.eng, F = G.ft;
   let chart = notes;
   if (E && E.length) {
     const fOf = t => Math.max(0, Math.min(E.length - 1, Math.round((t * F.sr - F.N / 2) / F.H)));
+    // how long the sound that starts at t keeps at least `frac` of its level, looking no further than `limit`
+    const ringUntil = (t, limit, frac) => {
+      let pk = 0; for (let f = fOf(t), f1 = fOf(t + 0.1); f <= f1; f++) pk = Math.max(pk, E[f]);
+      if (pk <= 0) return t;
+      let f = fOf(t + 0.1), quiet = 0; const fEnd = fOf(limit);
+      while (f < fEnd) { if (E[f] < pk * frac) { if (++quiet >= 3) break; } else quiet = 0; f++; }
+      return f >= fEnd ? limit : (f * F.H + F.N / 2) / F.sr;
+    };
+    const isTwin = k => k + 1 < notes.length && notes[k + 1].t === notes[k].t;
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
-      if (i > 0 && notes[i - 1].t === n.t) continue;
-      const twin = i + 1 < notes.length && notes[i + 1].t === n.t ? notes[i + 1] : null, nx = i + (twin ? 2 : 1);
-      const maxLen = Math.min(4, (nx < notes.length ? notes[nx].t : dur - 0.5) - n.t - 0.18);
+      if (n.drop || (i > 0 && notes[i - 1].t === n.t)) continue;
+      const twin = isTwin(i) ? notes[i + 1] : null, nx = i + (twin ? 2 : 1);
+      const nextT = nx < notes.length ? notes[nx].t : dur - 0.5;
+      // slide: the sound is held straight into the next note (a sung or played line moving to a new pitch) and that
+      // note rings on too -> one long note that slides to the neighbouring lane where the pitch changes
+      if (d.slides && !twin && nx < notes.length && !isTwin(nx)) {
+        const m = notes[nx], gap = m.t - n.t, after = (nx + 1 < notes.length ? notes[nx + 1].t : dur - 0.5) - m.t - 0.18;
+        if (gap >= 0.35 && gap <= 1.2 && after >= 0.3 && ringUntil(n.t, m.t, 0.5) >= m.t) {
+          const e2 = ringUntil(m.t, m.t + Math.min(4, after), 0.3);
+          if (e2 - m.t >= 0.3) { n.end = e2; n.mt = m.t; n.lane2 = n.lane ^ 1; m.drop = true; continue; }
+        }
+      }
+      // long note: nothing else follows for a while and the sound keeps ringing
+      const maxLen = Math.min(4, nextT - n.t - 0.18);
       if (maxLen < 0.3) continue;
-      const f0 = fOf(n.t), f1 = fOf(n.t + 0.1), fEnd = fOf(n.t + maxLen);
-      let pk = 0; for (let f = f0; f <= f1; f++) pk = Math.max(pk, E[f]);
-      if (pk <= 0) continue;
-      let f = f1, quiet = 0;
-      while (f < fEnd) { if (E[f] < pk * 0.3) { if (++quiet >= 3) break; } else quiet = 0; f++; }
-      const len = (f - f0) * F.H / F.sr;
-      if (f >= fEnd) n.end = n.t + maxLen; else if (len >= 0.45) n.end = n.t + len;
+      const e1 = ringUntil(n.t, n.t + maxLen, 0.3);
+      if (e1 >= n.t + maxLen || e1 - n.t >= 0.45) n.end = e1;
       if (n.end !== undefined && twin) twin.drop = true;   // a long note stands alone
+      // a held sound that changes partway without getting its own note also becomes a slide
+      if (n.end !== undefined && d.slides && n.end - n.t >= 0.7) {
+        let best = null;
+        for (const o of G.onsets) {
+          if (o.t <= n.t + 0.25) continue; if (o.t >= n.end - 0.3) break;
+          if (!pickedSet.has(o) && o.s > 1.3 && (!best || o.s > best.s)) best = o;
+        }
+        if (best) { n.mt = best.t; n.lane2 = n.lane ^ 1; }
+      }
     }
     chart = notes.filter(n => !n.drop);
   }
@@ -1234,7 +1285,7 @@ function buildChart() {
 function syncReadyUi() {
   document.querySelectorAll("#diffSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === G.diff)));
   const tapped = G.mode === "yt" && !G.ytAn, off = tapped ? G.ytOffset : G.offset;
-  $("offOut").textContent = (off > 0 ? "+" : "") + off + " ms";
+  $("offOut").textContent = $("pOffOut").textContent = (off > 0 ? "+" : "") + off + " ms";
   $("calBtn").hidden = tapped;
   $("spdOut").textContent = G.speed.toFixed(2).replace(/0$/, "") + "x";
   $("bpmRow").hidden = !tapped;
@@ -1258,6 +1309,8 @@ function nudge(d) {
   syncReadyUi();
 }
 $("offMinus").addEventListener("click", () => nudge(-10));
+$("pOffMinus").addEventListener("click", () => nudge(-10));
+$("pOffPlus").addEventListener("click", () => nudge(10));
 $("offPlus").addEventListener("click", () => nudge(10));
 syncReadyUi();
 
@@ -1344,13 +1397,13 @@ function startGame() {
   if (!G.calibrated && !(G.mode === "yt" && !G.ytAn)) { startCalib(); return; }
   $("readyMsg").textContent = ""; G.lat = reportedLatency(); AK.last = -1;
   stopSource();
-  G.chart.forEach(n => { n.state = 0; });
+  G.chart.forEach(n => { n.state = 0; n.moved = false; });
   const lanes = [[], [], [], []];
   G.chart.forEach(n => lanes[n.lane].push(n));
   G.play = {
     lanes, heads: [0, 0, 0, 0], drawFrom: 0,
     score: 0, combo: 0, maxCombo: 0, p: 0, g: 0, o: 0, m: 0,
-    life: 100, fever: 0, feverUntil: -99, holding: [null, null, null, null], failed: false,
+    life: 100, fever: 0, feverUntil: -99, holds: [], errs: [], failed: false,
     judge: "", judgeColor: "#fff", judgeAt: -9, press: [-9, -9, -9, -9], hitFx: [-9, -9, -9, -9], parts: []
   };
   G.running = true; G.paused = false;
@@ -1403,21 +1456,48 @@ function addJudge(kind, lane) {
   }
 }
 // note states: 0 waiting, 1 done, 2 missed, 3 being held, 4 let go too early
-function judgeNote(n, kind) {
+// a long note may slide: at n.mt the thumb has to be on n.lane2 instead of n.lane
+function judgeNote(n, kind, pid) {
   const P = G.play, long = n.end !== undefined;
-  if (kind === "m") { n.state = 2; addJudge("m", n.lane); if (long) P.m++; return; }
-  if (long) { n.state = 3; P.holding[n.lane] = n; } else n.state = 1;
+  if (kind === "m") { n.state = 2; addJudge("m", n.lane); if (long) P.m += n.mt !== undefined ? 2 : 1; return; }
+  if (long) { n.state = 3; n.moved = false; P.holds.push({ n, pid }); } else n.state = 1;
   addJudge(kind, n.lane);
 }
-function release(lane) {
+const PT = new Map();   // pointer id -> lane the finger is on now
+const KD = new Set();   // lanes whose key is down
+// which lane the finger (or key) holding this note is on; -1 when it has let go
+function holdLane(h, need) {
+  if (h.pid === undefined) return need;                       // driven from script (tests)
+  if (h.pid === "k") return KD.has(need) ? need : KD.has(h.n.lane) ? h.n.lane : KD.has(h.n.lane2) ? h.n.lane2 : -1;
+  return PT.has(h.pid) ? PT.get(h.pid) : -1;
+}
+function endHold(h, ok) {
+  const P = G.play, i = P.holds.indexOf(h); if (i >= 0) P.holds.splice(i, 1);
+  const n = h.n, lane = n.moved ? n.lane2 : n.lane;
+  if (ok) { n.state = 1; addJudge("p", lane); }
+  else { n.state = 4; addJudge("m", lane); if (n.mt !== undefined && !n.moved) P.m++; }
+}
+function letGo(h) {   // the finger left: fine if the note is about over and any slide was made
+  const n = h.n; endHold(h, songTime() >= n.end - 0.15 && (n.mt === undefined || n.moved));
+}
+function release(lane) {   // by lane: script and keyboard path
   const P = G.play; if (!G.running || G.paused || !P) return;
-  const n = P.holding[lane]; if (!n) return;
-  P.holding[lane] = null;
-  if (songTime() >= n.end - 0.15) { n.state = 1; addJudge("p", lane); }
-  else { n.state = 4; addJudge("m", lane); }
+  for (const h of P.holds.slice()) if ((h.n.moved ? h.n.lane2 : h.n.lane) === lane && (h.pid === undefined || h.pid === "k")) letGo(h);
+}
+function updateHolds(t, now) {
+  const P = G.play;
+  for (const h of P.holds.slice()) {
+    const n = h.n, sliding = n.mt !== undefined;
+    if (sliding && !n.moved && t >= n.mt - 0.2) {
+      if (holdLane(h, n.lane2) === n.lane2) { n.moved = true; addJudge("p", n.lane2); }
+      else if (t > n.mt + 0.25) { endHold(h, false); continue; }
+    }
+    P.press[n.moved ? n.lane2 : n.lane] = now;
+    if (t >= n.end) endHold(h, true);
+  }
 }
 
-function tap(lane) {
+function tap(lane, pid) {
   if (!G.running || G.paused) return;
   const P = G.play, t = songTime();
   P.press[lane] = performance.now();
@@ -1426,25 +1506,26 @@ function tap(lane) {
   while (i < arr.length && arr[i].state !== 0) i++;
   P.heads[lane] = i;
   if (i >= arr.length) return;
-  const dt = Math.abs(arr[i].t - t);
+  const err = t - arr[i].t, dt = Math.abs(err);
   if (dt > WIN.good) return;
-  judgeNote(arr[i], dt <= WIN.perfect ? "p" : dt <= WIN.great ? "g" : "o");
+  P.errs.push(err);
+  judgeNote(arr[i], dt <= WIN.perfect ? "p" : dt <= WIN.great ? "g" : "o", pid);
 }
 
-const PT = new Map();   // pointer id -> lane it went down on
+const laneAt = e => { const r = cv.getBoundingClientRect(); return Math.max(0, Math.min(3, Math.floor((e.clientX - r.left - V.fx) / V.lw))); };
 cv.addEventListener("pointerdown", e => {
   e.preventDefault();
-  const r = cv.getBoundingClientRect();
-  const lane = Math.max(0, Math.min(3, Math.floor((e.clientX - r.left - V.fx) / V.lw)));
+  const lane = laneAt(e);
   PT.set(e.pointerId, lane);
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
-  tap(lane);
+  tap(lane, e.pointerId);
 });
+cv.addEventListener("pointermove", e => { if (PT.has(e.pointerId)) PT.set(e.pointerId, laneAt(e)); });
 function pointerGone(e) {
-  const lane = PT.get(e.pointerId); if (lane === undefined) return;
+  if (!PT.has(e.pointerId)) return;
   PT.delete(e.pointerId);
-  let still = false; PT.forEach(v => { if (v === lane) still = true; });
-  if (!still) release(lane);
+  const P = G.play; if (!G.running || G.paused || !P) return;
+  for (const h of P.holds.slice()) if (h.pid === e.pointerId) letGo(h);
 }
 cv.addEventListener("pointerup", pointerGone);
 cv.addEventListener("pointercancel", pointerGone);
@@ -1454,9 +1535,14 @@ addEventListener("keydown", e => {
   if ($("game").hidden) return;
   if (e.code === "Escape") { G.paused ? resume() : pause(); return; }
   if (e.repeat) return;
-  if (e.code in KEYS) tap(KEYS[e.code]);
+  if (e.code in KEYS) { KD.add(KEYS[e.code]); tap(KEYS[e.code], "k"); }
 });
-addEventListener("keyup", e => { if (!$("game").hidden && e.code in KEYS) release(KEYS[e.code]); });
+addEventListener("keyup", e => {
+  if (!(e.code in KEYS)) return;
+  KD.delete(KEYS[e.code]);
+  const P = G.play; if ($("game").hidden || !G.running || G.paused || !P) return;
+  for (const h of P.holds.slice()) if (h.pid === "k" && holdLane(h, h.n.moved ? h.n.lane2 : h.n.lane) === -1) letGo(h);
+});
 
 function rr(x, y, w, h, r) {
   c2.beginPath(); c2.moveTo(x + r, y); c2.arcTo(x + w, y, x + w, y + h, r); c2.arcTo(x + w, y + h, x, y + h, r);
@@ -1475,9 +1561,8 @@ function frame() {
       i++;
     }
     P.heads[l] = i;
-    const hn = P.holding[l];
-    if (hn) { P.press[l] = now; if (t >= hn.end) { P.holding[l] = null; hn.state = 1; addJudge("p", l); } }
   }
+  updateHolds(t, now);
   if (P.life <= 0) { P.failed = true; finish(); return; }
   const inFever = t < P.feverUntil, AP = APPROACH / G.speed;
   if (G.videoEl && G.mode !== "yt") syncVideo(t, now);
@@ -1513,24 +1598,35 @@ function frame() {
     }
   }
 
-  // notes (long notes draw a body from head to tail; a held head stays on the line)
-  const speed = hitY / AP, ch = G.chart;
+  // notes (long notes draw a body from head to tail; a held head stays on the line; a slide bends to its second lane)
+  const speed = hitY / AP, ch = G.chart, bw = lw - pad * 2 - 16;
+  const body = (lane, yTop, yBot) => { if (yBot - yTop > 0.5) { rr(fx + lane * lw + pad + 8, yTop, bw, yBot - yTop, 6); c2.fill(); } };
   while (P.drawFrom < ch.length && (ch[P.drawFrom].end || ch[P.drawFrom].t) < t - 0.4) P.drawFrom++;
   for (let i = P.drawFrom; i < ch.length; i++) {
     const n = ch[i]; if (n.t - t > AP + 0.1) break;
     if (n.state === 1) continue;
-    const x = fx + n.lane * lw + pad, dim = n.state === 2 || n.state === 4;
-    let y = hitY - (n.t - t) * speed;
+    const dim = n.state === 2 || n.state === 4, held = n.state === 3;
+    let y = hitY - (n.t - t) * speed, lane = n.lane;
     if (n.end !== undefined) {
-      if (n.state === 3) y = hitY;
-      const yt = Math.max(-nh, hitY - (n.end - t) * speed);
-      if (yt < y) {
-        c2.globalAlpha = dim ? 0.15 : n.state === 3 ? 0.85 : 0.5; c2.fillStyle = LANES[n.lane];
-        rr(x + 8, yt, lw - pad * 2 - 16, y - yt, 6); c2.fill();
+      if (held) y = hitY;
+      const yEnd = Math.max(-nh, hitY - (n.end - t) * speed);
+      c2.globalAlpha = dim ? 0.15 : held ? 0.85 : 0.5; c2.fillStyle = LANES[n.lane];
+      if (n.mt === undefined) body(n.lane, yEnd, y);
+      else if (n.moved) { lane = n.lane2; c2.fillStyle = LANES[lane]; body(lane, yEnd, y); }
+      else {
+        // first lane up to the bend, a slanted link over the last 0.12 s before it, then the second lane
+        const yM = Math.min(y, hitY - (n.mt - t) * speed), yL = Math.min(y, yM + 0.12 * speed);
+        body(n.lane, yL, y);
+        const xa = fx + n.lane * lw + pad + 8, xb = fx + n.lane2 * lw + pad + 8;
+        c2.beginPath(); c2.moveTo(xa, yL); c2.lineTo(xa + bw, yL); c2.lineTo(xb + bw, yM); c2.lineTo(xb, yM); c2.closePath(); c2.fill();
+        c2.fillStyle = LANES[n.lane2]; body(n.lane2, yEnd, yM);
+        // arrow on the bend so the move reads at a glance
+        if (!dim && yM > 0) { c2.globalAlpha = 1; c2.fillStyle = "#f3eefc"; const ax = fx + (n.lane2 + 0.5) * lw, s = n.lane2 > n.lane ? 1 : -1; c2.beginPath(); c2.moveTo(ax + 9 * s, yM - 2); c2.lineTo(ax - 5 * s, yM - 11); c2.lineTo(ax - 5 * s, yM + 7); c2.closePath(); c2.fill(); }
       }
     }
+    const x = fx + lane * lw + pad;
     c2.globalAlpha = dim ? 0.25 : 1;
-    rr(x, y - nh / 2, lw - pad * 2, nh, 7); c2.fillStyle = LANES[n.lane]; c2.fill();
+    rr(x, y - nh / 2, lw - pad * 2, nh, 7); c2.fillStyle = LANES[lane]; c2.fill();
     c2.fillStyle = "rgba(255,255,255,.55)"; c2.fillRect(x + 8, y - nh / 2 + 4, lw - pad * 2 - 16, 3);
     c2.globalAlpha = 1;
   }
@@ -1553,10 +1649,10 @@ function frame() {
   c2.fillStyle = "#a29bbd"; c2.font = '600 12px "IBM Plex Sans KR", sans-serif'; c2.fillText("점수", 16, 16);
   c2.fillStyle = "#f3eefc"; c2.font = '26px "Black Han Sans", sans-serif'; c2.fillText(String(P.score), 16, 32);
   // gauge (drops on a miss, the song stops at zero) and fever (fills on good hits, then doubles the score)
-  const bw = 96;
-  c2.fillStyle = "#322c4d"; c2.fillRect(16, 66, bw, 6); c2.fillRect(16, 76, bw, 6);
-  c2.fillStyle = P.life < 30 ? "#ff6b4a" : "#3ddc97"; c2.fillRect(16, 66, bw * Math.max(0, P.life) / 100, 6);
-  c2.fillStyle = "#ffc43d"; c2.fillRect(16, 76, bw * (inFever ? (P.feverUntil - t) / FEVER_LEN : P.fever / 100), 6);
+  const gw = 96;
+  c2.fillStyle = "#322c4d"; c2.fillRect(16, 66, gw, 6); c2.fillRect(16, 76, gw, 6);
+  c2.fillStyle = P.life < 30 ? "#ff6b4a" : "#3ddc97"; c2.fillRect(16, 66, gw * Math.max(0, P.life) / 100, 6);
+  c2.fillStyle = "#ffc43d"; c2.fillRect(16, 76, gw * (inFever ? (P.feverUntil - t) / FEVER_LEN : P.fever / 100), 6);
   if (inFever) { c2.fillStyle = "#ffc43d"; c2.font = '18px "Black Han Sans", sans-serif'; c2.fillText("FEVER x2", 16, 88); }
   c2.textAlign = "center";
   const cx = w / 2;
@@ -1579,7 +1675,7 @@ function frame() {
     c2.fillStyle = "#f3eefc"; c2.textBaseline = "middle"; c2.font = '44px "Black Han Sans", sans-serif';
     c2.fillText(String(Math.ceil(-t)), cx, h * 0.52);
     c2.font = '500 14px "IBM Plex Sans KR", sans-serif'; c2.fillStyle = "#a29bbd";
-    c2.fillText("노트가 선에 닿을 때 그 줄을 누르세요", cx, h * 0.52 + 44);
+    c2.fillText("양손 엄지로, 노트가 선에 닿을 때 그 줄을 누르세요", cx, h * 0.52 + 44);
   }
 
   if (t > (G.mode === "yt" ? dur - 0.4 : dur + 0.8)) { finish(); return; }
@@ -1591,6 +1687,7 @@ function pause() {
   G.paused = true; if (G.clk) G.clk.ok = false;
   if (G.mode === "yt") ytCall("pauseVideo"); else G.ctx.suspend().catch(() => {});
   if (G.videoEl) { try { G.videoEl.pause(); } catch (e) {} }
+  syncReadyUi();
   $("pauseOverlay").hidden = false;
 }
 function resume() {
@@ -1606,7 +1703,7 @@ function quit(to) {
 }
 function finish() {
   if (!G.running) return;
-  const P = G.play, total = (G.chart.length + G.chart.filter(n => n.end !== undefined).length) || 1;
+  const P = G.play, total = (G.chart.length + G.chart.filter(n => n.end !== undefined).length + G.chart.filter(n => n.mt !== undefined).length) || 1;
   G.running = false; stopSource();
   const acc = (P.p + P.g * 0.7 + P.o * 0.4) / total * 100;
   $("resSong").textContent = G.name;
@@ -1621,6 +1718,20 @@ function finish() {
   $("resRank").textContent = P.failed ? "F" : acc >= 95 ? "S" : acc >= 88 ? "A" : acc >= 75 ? "B" : acc >= 60 ? "C" : "D";
   $("resScore").textContent = P.score.toLocaleString("ko-KR");
   if (!P.failed) saveBest(P.score, $("resRank").textContent);
+  // sync learned from play: if the taps were consistently early or late, shift the notes by that much next time
+  let syncMsg = "";
+  const er = P.errs.slice().sort((x, y) => x - y);
+  if (er.length >= 20) {
+    const med = er[er.length >> 1] * 1000, spread = (er[Math.floor(er.length * 0.8)] - er[Math.floor(er.length * 0.2)]) * 1000;
+    const shift = Math.round(med / 5) * 5;
+    if (Math.abs(shift) >= 15 && spread < 110) {
+      const tapped = G.mode === "yt" && !G.ytAn;
+      if (tapped) { G.ytOffset = Math.max(-500, Math.min(500, G.ytOffset + shift)); store.set("bd-offset-yt", String(G.ytOffset)); }
+      else { G.offset = Math.max(-500, Math.min(500, G.offset + shift)); store.set("bd-offset", String(G.offset)); }
+      syncMsg = "평균 " + Math.abs(shift) + "ms " + (shift > 0 ? "늦게" : "빠르게") + " 쳐서, 다음 판부터 노트를 그만큼 " + (shift > 0 ? "늦췄습니다" : "앞당겼습니다") + ". 준비 화면의 싱크 조절에서 바꿀 수 있습니다.";
+    }
+  }
+  $("resSync").textContent = syncMsg;
   $("resAcc").textContent = acc.toFixed(1) + "%";
   $("resCombo").textContent = P.maxCombo;
   $("resP").textContent = P.p; $("resG").textContent = P.g; $("resO").textContent = P.o; $("resM").textContent = P.m;
