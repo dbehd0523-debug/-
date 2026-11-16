@@ -173,7 +173,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <!-- TEMPO (YouTube) -->
 <section class="screen" id="tempo" hidden>
   <div class="col">
-    <p class="hint" id="tempoHelp">위 영상의 재생 버튼을 누른 다음, 노래 박자에 맞춰 아래를 16번 이상 두드리세요.</p>
+    <p class="hint" id="tempoHelp">위 영상의 재생 버튼을 누른 다음, 노래 박자에 맞춰 아래를 16번 이상 두드리세요. 노래의 한 소절이 시작되는 박에서 두드리기 시작하면 노트가 더 잘 맞습니다.</p>
     <button class="tapPad" type="button" id="tapPad">
       <b id="tapCount">0 / 16</b>
       <span id="tapBpm">박자에 맞춰 여기를 두드리기</span>
@@ -311,6 +311,7 @@ const G = {
   diff: DIFFS[store.get("bd-diff", "normal")] ? store.get("bd-diff", "normal") : "normal",
   offset: Math.max(-500, Math.min(500, parseInt(store.get("bd-offset", "0"), 10) || 0)),
   calibrated: store.get("bd-cal", "") === "1", lat: 0,
+  ytOffset: Math.max(-500, Math.min(500, parseInt(store.get("bd-offset-yt", "0"), 10) || 0)),
   speed: [1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(parseFloat(store.get("bd-speed", "1"))) ? parseFloat(store.get("bd-speed", "1")) : 1,
   mode: "audio", dur: 0, yt: null, ytId: "", beat: 0.5, phase: 0, taps: [],
   chart: [], source: null, startAt: 0, running: false, paused: false, play: null
@@ -582,6 +583,7 @@ function tempoDone() {
   if (dur < 10) { $("tapBpm").textContent = "길이를 알 수 없는 영상입니다. 다른 영상을 넣어 주세요"; return; }
   const r = calcTempo(G.taps);
   G.beat = r.beat; G.anchor = r.anchor; G.dur = dur;
+  G.tap0 = G.taps[0]; setBar0();
   const vd = ytCall("getVideoData");
   G.name = (vd && vd.title) || "유튜브 노래";
   buildChart();
@@ -590,40 +592,72 @@ function tempoDone() {
   $("statLen").textContent = fmtTime(dur);
   show("ready");
 }
+function setBar0() { G.bar0 = G.anchor + Math.round((G.tap0 - G.anchor) / G.beat) * G.beat; }
 function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
 function rng(a) { return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+// YouTube mode has no access to the sound, so the chart is composed on the beat grid the way hand-made charts are:
+// 8-bar sections with an intensity, a one-bar rhythm repeated with a fixed lane figure, a variation, and a fill.
+// x = tap, L = long note (6 steps), 16 steps per bar
 const PATTERNS = {
-  easy:   { calm: ["x.......x.......", "x...x...x......."], main: ["x...x...x...x...", "x...x...x.......", "x.......x...x...", "x...x...x...x.x."], dbl: 0 },
-  normal: { calm: ["x...x...x...x...", "x...x...x.x....."], main: ["x...x.x.x...x.x.", "x.x.x...x.x.x...", "x...x...x.x.x.x.", "x..x..x.x...x...", "x.x.x.x.x...x..."], dbl: 0.2 },
-  hard:   { calm: ["x...x.x.x...x.x.", "x.x.x...x.x.x.x."], main: ["x.x.x.x.x.x.x.x.", "x.xxx.x.x.xxx.x.", "x..x..x.x..x..x.", "xxx.x.x.xxx.x.x.", "x.x.xxx.x.x.x.xx"], fast: ["x.x.x.x.x.x.x.x.", "x.x.x...x.x.x.x.", "x..x..x.x.x.x.x."], dbl: 0.4 }
+  easy: {
+    calm: ["L.......L.......", "x.......x.......", "L.......x...x..."],
+    mid:  ["x...x...x...x...", "x...x...x.x.x...", "x...x.x.....x..."],
+    high: ["x...x...x.x.x...", "x.x.x...x...x...", "x...x.x.x...x.x."],
+    fill: ["x...x...x.x.x.x.", "x.x.x...x.x.x..."], dbl: false
+  },
+  normal: {
+    calm: ["L.......x...x...", "x...x...L.......", "x.....x.x......."],
+    mid:  ["x...x.x.x...x.x.", "x..x..x.x...x...", "x.x.x...x.x.x..."],
+    high: ["x.x.x.x.x...x.x.", "x..x..x.x..x..x.", "x.x.x.x.x.x.x..."],
+    fill: ["x.x.x.x.xxxxx...", "x...x.x.x.xxx.x."], dbl: true
+  },
+  hard: {
+    calm: ["x...x.x.L.......", "x..x..x.x...x.x."],
+    mid:  ["x.x.x.x.x.x.x.x.", "x..x..x.x..x.xx.", "x.xxx.x.x.x.x..."],
+    high: ["x.xxx.x.x.xxx.x.", "xxx.x.x.xxx.x.x.", "x.x.xxx.x.x.xxxx"],
+    fill: ["xxxxxxxxx.x.x...", "x.xxx.xxx.xxxxxx"], dbl: true
+  }
 };
+const FIGURES = [[0, 1, 2, 3], [3, 2, 1, 0], [0, 2, 1, 3], [3, 1, 2, 0], [0, 3, 1, 2], [1, 2, 0, 3], [1, 0, 2, 3], [2, 3, 1, 0], [0, 1, 0, 2, 1, 3, 2, 3], [3, 2, 3, 1, 2, 0, 1, 0]];
 function buildGridChart() {
-  const beat = G.beat, step = beat / 4, dur = G.dur, P = PATTERNS[G.diff];
+  const beat = G.beat, step = beat / 4, bar = beat * 4, dur = G.dur, P = PATTERNS[G.diff];
   const rnd = rng(hashStr(G.ytId + G.diff)), pick = a => a[Math.floor(rnd() * a.length)];
-  const main = P.fast && step < 0.11 ? P.fast : P.main;
-  let first = ((G.anchor % beat) + beat) % beat; while (first < 2) first += beat;
-  const notes = []; let lane = Math.floor(rnd() * 4), calm = true;
-  for (let bar = 0; ; bar++) {
-    const bt = first + bar * 4 * beat; if (bt > dur - 2) break;
-    if (bar % 8 === 0) calm = bar === 0 || rnd() < 0.25;
-    const pat = pick(calm ? P.calm : main), motif = Math.floor(rnd() * 4);
-    let dir = rnd() < 0.5 ? 1 : -1, k = 0;
-    const a = lane, b = (lane + 1 + Math.floor(rnd() * 3)) % 4;
-    for (let s = 0; s < 16; s++) {
-      if (pat[s] !== "x") continue;
-      const t = bt + s * step; if (t > dur - 2) break;
-      if (motif === 0) { lane += dir; if (lane > 3 || lane < 0) { dir = -dir; lane += 2 * dir; } }
-      else if (motif === 1) lane = k % 2 ? b : a;
-      else if (motif === 2) lane = (lane + 2 + (k % 2)) % 4;
-      else { let n; do { n = Math.floor(rnd() * 4); } while (n === lane); lane = n; }
-      notes.push({ t, lane, state: 0 });
-      if (s % 8 === 0 && !calm && rnd() < P.dbl) notes.push({ t, lane: (lane + 2) % 4, state: 0 });
-      k++;
+  // at fast tempos quarter-beat notes are too quick to hit, keep half beats only
+  const fit = pat => step < 0.1 ? pat.split("").map((ch, i) => i % 2 ? "." : ch).join("") : pat;
+  // bars are counted from the first tap of the tempo screen, which is usually where a phrase starts
+  let first = G.bar0 !== undefined ? G.bar0 : ((G.anchor % beat) + beat) % beat;
+  first += Math.ceil((2 - first) / bar) * bar;
+  const notes = [];
+  let level = "calm", streak = 0;
+  for (let b = 0; ; b++) {
+    const bt = first + b * bar; if (bt > dur - 2) break;
+    const inSec = (b + 4) % 8, phraseBar = b % 4;   // the calm opening is only 4 bars
+    if (inSec === 0 || b === 0) {
+      // sections: start calm, then alternate so the same intensity never runs more than twice
+      const prev = level;
+      level = b === 0 ? "calm" : pick(prev === "calm" ? ["mid", "mid", "high"] : streak >= 2 ? (prev === "mid" ? ["high", "calm"] : ["mid", "calm"]) : ["mid", "high", "high", "calm"]);
+      streak = level === prev ? streak + 1 : 1;
+      this_sec = { a: fit(pick(P[level])), v: fit(pick(P[level])), fig: pick(FIGURES), fill: fit(pick(P.fill)), fillFig: pick([[0, 1, 2, 3], [3, 2, 1, 0]]) };
+    }
+    const S = this_sec;
+    // phrase of 4 bars: A A' A fill, second phrase mirrors the lanes
+    const isFill = phraseBar === 3 && level !== "calm", pat = isFill ? S.fill : phraseBar === 1 ? S.v : S.a;
+    const fig = isFill ? S.fillFig : S.fig, mirror = inSec >= 4;
+    let k = phraseBar === 1 ? 1 : 0;
+    for (let i = 0; i < 16; i++) {
+      const ch = pat[i]; if (ch === ".") continue;
+      const t = bt + i * step; if (t > dur - 2) break;
+      let lane = fig[k % fig.length]; if (mirror) lane = 3 - lane; k++;
+      const n = { t, lane, state: 0 };
+      if (ch === "L") n.end = t + Math.max(0.3, step * 6);
+      notes.push(n);
+      if (P.dbl && i === 0 && phraseBar === 0 && level !== "calm" && ch === "x") notes.push({ t, lane: 3 - lane === lane ? (lane + 2) % 4 : 3 - lane, state: 0 });
     }
   }
   G.chart = notes;
   $("statNotes").textContent = notes.length;
 }
+let this_sec = null;
 
 /* ---------- beat analysis: spectral flux onset detection ---------- */
 function fft(re, im) {
@@ -824,12 +858,14 @@ function buildChart() {
 /* ---------- ready screen ---------- */
 function syncReadyUi() {
   document.querySelectorAll("#diffSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === G.diff)));
-  $("offOut").textContent = (G.offset > 0 ? "+" : "") + G.offset + " ms";
+  const off = G.mode === "yt" ? G.ytOffset : G.offset;
+  $("offOut").textContent = (off > 0 ? "+" : "") + off + " ms";
+  $("calBtn").hidden = G.mode === "yt";
   $("spdOut").textContent = G.speed.toFixed(2).replace(/0$/, "") + "x";
   $("bpmRow").hidden = G.mode !== "yt";
   $("bpmOut").textContent = Math.round(60 / G.beat) + " BPM";
 }
-function nudgeBpm(d) { G.beat = 60 / Math.max(60, Math.min(220, Math.round(60 / G.beat) + d)); buildChart(); syncReadyUi(); }
+function nudgeBpm(d) { G.beat = 60 / Math.max(60, Math.min(220, Math.round(60 / G.beat) + d)); setBar0(); buildChart(); syncReadyUi(); }
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 function nudgeSpeed(d) { G.speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(G.speed) + d))]; store.set("bd-speed", String(G.speed)); syncReadyUi(); }
 $("spdMinus").addEventListener("click", () => nudgeSpeed(-1));
@@ -840,7 +876,12 @@ $("diffSeg").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   G.diff = b.dataset.d; store.set("bd-diff", G.diff); buildChart(); syncReadyUi();
 });
-function nudge(d) { $("readyMsg").textContent = ""; G.offset = Math.max(-500, Math.min(500, G.offset + d)); store.set("bd-offset", String(G.offset)); syncReadyUi(); }
+function nudge(d) {
+  $("readyMsg").textContent = "";
+  if (G.mode === "yt") { G.ytOffset = Math.max(-500, Math.min(500, G.ytOffset + d)); store.set("bd-offset-yt", String(G.ytOffset)); }
+  else { G.offset = Math.max(-500, Math.min(500, G.offset + d)); store.set("bd-offset", String(G.offset)); }
+  syncReadyUi();
+}
 $("offMinus").addEventListener("click", () => nudge(-10));
 $("offPlus").addEventListener("click", () => nudge(10));
 syncReadyUi();
@@ -875,7 +916,7 @@ function ctxNow() {
 }
 function reportedLatency() { const l = G.ctx.outputLatency || G.ctx.baseLatency || 0; return l > 0 && l < 0.5 ? l : 0; }
 function songTime() {
-  if (G.mode === "yt") return ytClock() - G.offset / 1000;
+  if (G.mode === "yt") return ytClock() - G.ytOffset / 1000;
   return ctxNow() - G.startAt - G.lat - G.offset / 1000;
 }
 
@@ -925,7 +966,7 @@ function endCalib() {
 
 function startGame() {
   ensureCtx();
-  if (!G.calibrated) { startCalib(); return; }
+  if (!G.calibrated && G.mode !== "yt") { startCalib(); return; }
   $("readyMsg").textContent = ""; G.lat = reportedLatency(); AK.last = -1;
   stopSource();
   G.chart.forEach(n => { n.state = 0; });
