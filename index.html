@@ -651,7 +651,7 @@ function buildGridChart() {
       const n = { t, lane, state: 0 };
       if (ch === "L") n.end = t + Math.max(0.3, step * 6);
       notes.push(n);
-      if (P.dbl && i === 0 && phraseBar === 0 && level !== "calm" && ch === "x") notes.push({ t, lane: 3 - lane === lane ? (lane + 2) % 4 : 3 - lane, state: 0 });
+      if (P.dbl && i === 0 && phraseBar === 0 && level !== "calm" && ch === "x" && pat[1] === ".") notes.push({ t, lane: 3 - lane === lane ? (lane + 2) % 4 : 3 - lane, state: 0 });
     }
   }
   G.chart = notes;
