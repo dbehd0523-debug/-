@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>비트드롭</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one-screen phone app. A single dark "stage" world; four lane colors carry all the energy. */
+:root{
+  color-scheme: dark;
+  --ink:#120f1d;
+  --panel:#1d1930;
+  --line:#322c4d;
+  --text:#f3eefc;
+  --muted:#a29bbd;
+  --accent:#ff6b4a;
+  --lane-1:#ff6b4a;
+  --lane-2:#ffc43d;
+  --lane-3:#3ddc97;
+  --lane-4:#4cc3ff;
+  --font-display:"Black Han Sans","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --font-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{
+  display:flex;flex-direction:column;
+  background:var(--ink);color:var(--text);
+  font-family:var(--font-body);font-size:16px;line-height:1.5;
+  overflow:hidden;-webkit-tap-highlight-color:transparent;
+  -webkit-user-select:none;user-select:none;
+}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--lane-4);outline-offset:2px}
+
+.screen{flex:1;min-height:0;overflow-y:auto;display:flex;justify-content:center}
+.screen[hidden]{display:none}
+.col{width:100%;max-width:440px;padding:28px 20px 32px;display:flex;flex-direction:column;gap:20px}
+
+/* home */
+.brand{display:flex;flex-direction:column;gap:6px;padding-top:8px}
+.bars{display:flex;gap:6px;align-items:flex-end;height:34px}
+.bars i{width:14px;border-radius:3px}
+.bars i:nth-child(1){height:60%;background:var(--lane-1)}
+.bars i:nth-child(2){height:100%;background:var(--lane-2)}
+.bars i:nth-child(3){height:45%;background:var(--lane-3)}
+.bars i:nth-child(4){height:80%;background:var(--lane-4)}
+h1{font-family:var(--font-display);font-weight:400;font-size:52px;line-height:1.05;letter-spacing:.01em}
+.tag{color:var(--muted);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card label,.label{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.02em}
+.row{display:flex;gap:8px}
+input[type=url]{
+  flex:1;min-width:0;height:48px;padding:0 14px;border-radius:10px;
+  background:var(--ink);border:1px solid var(--line);
+  -webkit-user-select:text;user-select:text;
+}
+input[type=url]::placeholder{color:#6f6890}
+.btn{
+  height:48px;padding:0 18px;border-radius:10px;font-weight:600;
+  background:var(--accent);color:#1a0d08;white-space:nowrap;
+}
+.btn:active{transform:translateY(1px)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+.btn.wide{width:100%}
+.btn.big{height:58px;font-family:var(--font-display);font-size:22px;letter-spacing:.04em}
+.or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.msg{font-size:14px;color:var(--lane-2);min-height:0}
+.msg:empty{display:none}
+.hint{font-size:13px;color:var(--muted)}
+.hint li{margin-left:18px}
+.hint ul{display:flex;flex-direction:column;gap:4px;padding:0}
+
+/* loading */
+.center{justify-content:center;align-items:stretch;text-align:center;min-height:100%}
+.progress{height:8px;border-radius:4px;background:var(--panel);overflow:hidden}
+.progress b{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--lane-1),var(--lane-2),var(--lane-3),var(--lane-4))}
+h2{font-family:var(--font-display);font-weight:400;font-size:30px;line-height:1.15;text-wrap:balance;overflow-wrap:anywhere}
+
+/* ready */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font-family:var(--font-display);font-weight:400;font-size:26px;font-variant-numeric:tabular-nums}
+.stat span{font-size:12px;color:var(--muted)}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.seg button{height:48px;border-radius:10px;border:1px solid var(--line);font-weight:600;color:var(--muted)}
+.seg button[aria-pressed=true]{background:var(--text);color:var(--ink);border-color:var(--text)}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper button{width:48px;height:44px;border-radius:10px;border:1px solid var(--line);font-size:20px}
+.stepper output{flex:1;text-align:center;font-variant-numeric:tabular-nums;font-weight:600}
+
+/* game */
+#game{position:relative;flex:1;min-height:0;display:block;overflow:hidden}
+#ytDock{flex:none;width:100%;max-width:520px;margin:0 auto;height:min(56.25vw,30vh,292px);background:#000}
+#ytDock[hidden]{display:none}
+#ytDock iframe{display:block;width:100%;height:100%;border:0}
+.tapPad{flex:1;min-height:150px;border-radius:18px;border:2px dashed var(--line);background:var(--panel);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;touch-action:none}
+.tapPad.hit{border-color:var(--lane-2);background:#2a2440}
+.tapPad b{font-family:var(--font-display);font-weight:400;font-size:44px;font-variant-numeric:tabular-nums}
+.tapPad span{color:var(--muted);font-size:14px}
+.btn:disabled{opacity:.4}
+#tempo .col{padding-top:16px;gap:14px}
+#calib .col{gap:14px}
+#game[hidden]{display:none}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+#pauseBtn{position:absolute;top:10px;right:10px;width:44px;height:44px;border-radius:10px;background:rgba(29,25,48,.8);border:1px solid var(--line);font-size:16px;font-weight:700}
+.overlay{position:absolute;inset:0;background:rgba(18,15,29,.88);display:flex;align-items:center;justify-content:center}
+.overlay[hidden]{display:none}
+.overlay .col{max-width:320px;text-align:center}
+
+/* results */
+.rank{font-family:var(--font-display);font-size:120px;line-height:1;color:var(--lane-2)}
+.judges{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.judges .stat{padding:10px 6px;text-align:center}
+.judges .stat b{font-size:22px}
+.j-p b{color:var(--lane-2)}.j-g b{color:var(--lane-3)}.j-o b{color:var(--lane-4)}.j-m b{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<div id="ytDock" hidden></div>
+
+<!-- HOME -->
+<section class="screen" id="home">
+  <div class="col">
+    <div class="brand">
+      <div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <h1>비트드롭</h1>
+      <p class="tag">노래를 넣으면 박자를 분석해서 바로 리듬게임으로 만들어 줍니다.</p>
+    </div>
+
+    <form class="card" id="linkForm">
+      <label for="urlInput">노래 링크</label>
+      <div class="row">
+        <input type="url" id="urlInput" inputmode="url" autocomplete="off" placeholder="유튜브 링크 또는 mp3 주소">
+        <button class="btn" type="submit" id="loadUrlBtn">불러오기</button>
+      </div>
+      <div class="or">또는</div>
+      <button class="btn ghost wide" type="button" id="fileBtn">휴대폰에 있는 노래 파일 고르기</button>
+      <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.aac" hidden>
+      <p class="msg" id="homeMsg" role="status"></p>
+    </form>
+
+    <button class="btn ghost wide" type="button" id="demoBtn">데모 곡으로 바로 해보기</button>
+
+    <div class="hint">
+      <ul>
+        <li>유튜브 링크는 영상을 틀어 놓고 박자를 몇 번 두드리면 그 빠르기로 노트를 만듭니다.</li>
+        <li>mp3 같은 오디오 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
+        <li>긴 노트는 끝까지 누르고 있어야 합니다. 놓치면 게이지가 줄고, 바닥나면 곡이 멈춥니다.</li>
+        <li>아이폰은 무음 스위치를 꺼야 소리가 납니다.</li>
+        <li>블루투스 이어폰은 소리가 늦게 들려서, 시작 전에 싱크를 맞춰 주세요.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- LOADING -->
+<section class="screen" id="loading" hidden>
+  <div class="col center">
+    <h2 id="loadTitle">노래를 불러오는 중</h2>
+    <div class="progress"><b id="loadBar"></b></div>
+    <p class="tag" id="loadSub">잠시만요</p>
+  </div>
+</section>
+
+<!-- TEMPO (YouTube) -->
+<section class="screen" id="tempo" hidden>
+  <div class="col">
+    <p class="hint" id="tempoHelp">위 영상의 재생 버튼을 누른 다음, 노래 박자에 맞춰 아래를 16번 이상 두드리세요.</p>
+    <button class="tapPad" type="button" id="tapPad">
+      <b id="tapCount">0 / 16</b>
+      <span id="tapBpm">박자에 맞춰 여기를 두드리기</span>
+    </button>
+    <button class="btn big wide" type="button" id="tempoOk" disabled>이 박자로 노트 만들기</button>
+    <div class="row">
+      <button class="btn ghost" type="button" id="tempoReset" style="flex:1">다시 두드리기</button>
+      <button class="btn ghost" type="button" id="tempoBack" style="flex:1">다른 노래</button>
+    </div>
+  </div>
+</section>
+
+<!-- CALIBRATION -->
+<section class="screen" id="calib" hidden>
+  <div class="col">
+    <h2>싱크 맞추기</h2>
+    <p class="hint" id="calHelp">휴대폰과 이어폰마다 소리가 늦게 나오는 정도가 다릅니다. "딱" 소리가 들릴 때마다 아래를 두드리세요. 10번이면 끝납니다.</p>
+    <button class="tapPad" type="button" id="calPad">
+      <b id="calCount">0 / 10</b>
+      <span id="calInfo">소리에 맞춰 여기를 두드리기</span>
+    </button>
+    <div class="row">
+      <button class="btn ghost" type="button" id="calRetry" style="flex:1">다시 하기</button>
+      <button class="btn ghost" type="button" id="calSkip" style="flex:1">건너뛰기</button>
+    </div>
+  </div>
+</section>
+
+<!-- READY -->
+<section class="screen" id="ready" hidden>
+  <div class="col">
+    <p class="label" id="readyLabel">준비 완료</p>
+    <h2 id="songName">노래 제목</h2>
+    <div class="stats">
+      <div class="stat"><b id="statLen">0:00</b><span>길이</span></div>
+      <div class="stat"><b id="statNotes">0</b><span>노트 수</span></div>
+    </div>
+    <div>
+      <p class="label" style="margin-bottom:8px">난이도</p>
+      <div class="seg" id="diffSeg">
+        <button type="button" data-d="easy" aria-pressed="false">쉬움</button>
+        <button type="button" data-d="normal" aria-pressed="true">보통</button>
+        <button type="button" data-d="hard" aria-pressed="false">어려움</button>
+      </div>
+    </div>
+    <div>
+      <p class="label" style="margin-bottom:8px">싱크 조절 · 노트가 소리보다 먼저 오면 +</p>
+      <div class="stepper">
+        <button type="button" id="offMinus" aria-label="싱크 10ms 줄이기">−</button>
+        <output id="offOut">0 ms</output>
+        <button type="button" id="offPlus" aria-label="싱크 10ms 늘리기">+</button>
+      </div>
+      <button class="btn ghost wide" type="button" id="calBtn" style="margin-top:8px">소리에 맞춰 두드려서 자동으로 맞추기</button>
+      <p class="msg" id="readyMsg" role="status" style="margin-top:8px"></p>
+    </div>
+    <div>
+      <p class="label" style="margin-bottom:8px">노트 속도</p>
+      <div class="stepper">
+        <button type="button" id="spdMinus" aria-label="노트 속도 줄이기">−</button>
+        <output id="spdOut">1.0x</output>
+        <button type="button" id="spdPlus" aria-label="노트 속도 늘리기">+</button>
+      </div>
+    </div>
+    <div id="bpmRow" hidden>
+      <p class="label" style="margin-bottom:8px">빠르기 · 뒤로 갈수록 노트가 밀리면 여기서 고치세요</p>
+      <div class="stepper">
+        <button type="button" id="bpmMinus" aria-label="빠르기 1 줄이기">−</button>
+        <output id="bpmOut">120 BPM</output>
+        <button type="button" id="bpmPlus" aria-label="빠르기 1 늘리기">+</button>
+      </div>
+    </div>
+    <button class="btn big wide" type="button" id="startBtn">시작</button>
+    <button class="btn ghost wide" type="button" id="backBtn">다른 노래 고르기</button>
+  </div>
+</section>
+
+<!-- GAME -->
+<section id="game" hidden>
+  <canvas id="cv"></canvas>
+  <button id="pauseBtn" type="button" aria-label="일시정지">II</button>
+  <div class="overlay" id="pauseOverlay" hidden>
+    <div class="col">
+      <h2>일시정지</h2>
+      <button class="btn big wide" type="button" id="resumeBtn">계속하기</button>
+      <button class="btn ghost wide" type="button" id="restartBtn">처음부터 다시</button>
+      <button class="btn ghost wide" type="button" id="quitBtn">그만하기</button>
+    </div>
+  </div>
+</section>
+
+<!-- RESULTS -->
+<section class="screen" id="results" hidden>
+  <div class="col" style="text-align:center">
+    <p class="label" id="resSong">노래 제목</p>
+    <div class="rank" id="resRank">A</div>
+    <p class="msg" id="resBadge" role="status" style="font-weight:600"></p>
+    <div class="stats">
+      <div class="stat"><b id="resScore">0</b><span>점수</span></div>
+      <div class="stat"><b id="resAcc">0%</b><span>정확도</span></div>
+    </div>
+    <div class="stat"><b id="resCombo">0</b><span>최대 콤보</span></div>
+    <div class="judges">
+      <div class="stat j-p"><b id="resP">0</b><span>PERFECT</span></div>
+      <div class="stat j-g"><b id="resG">0</b><span>GREAT</span></div>
+      <div class="stat j-o"><b id="resO">0</b><span>GOOD</span></div>
+      <div class="stat j-m"><b id="resM">0</b><span>MISS</span></div>
+    </div>
+    <button class="btn big wide" type="button" id="againBtn">다시 하기</button>
+    <p class="hint" id="diag"></p>
+    <button class="btn ghost wide" type="button" id="newBtn">다른 노래 고르기</button>
+  </div>
+</section>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const LANES = ["#ff6b4a", "#ffc43d", "#3ddc97", "#4cc3ff"];
+const DIFFS = {
+  // w: how much a note on the beat / half beat / quarter beat / off the grid is preferred
+  easy:   { minGap: 0.4,  nps: 2.2, doubles: 0,    w: [5, 1, 0.3, 0.2] },
+  normal: { minGap: 0.22, nps: 3.2, doubles: 0.06, w: [3.5, 2, 0.7, 0.5] },
+  hard:   { minGap: 0.12, nps: 5.5, doubles: 0.12, w: [2.2, 1.8, 1.3, 1] }
+};
+const WIN = { perfect: 0.05, great: 0.1, good: 0.16 };
+const APPROACH = 1.25, LEAD_IN = 2.5, FEVER_LEN = 8;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+
+const G = {
+  ctx: null, buffer: null, name: "", onsets: null,
+  diff: DIFFS[store.get("bd-diff", "normal")] ? store.get("bd-diff", "normal") : "normal",
+  offset: Math.max(-500, Math.min(500, parseInt(store.get("bd-offset", "0"), 10) || 0)),
+  calibrated: store.get("bd-cal", "") === "1", lat: 0,
+  speed: [1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(parseFloat(store.get("bd-speed", "1"))) ? parseFloat(store.get("bd-speed", "1")) : 1,
+  mode: "audio", dur: 0, yt: null, ytId: "", beat: 0.5, phase: 0, taps: [],
+  chart: [], source: null, startAt: 0, running: false, paused: false, play: null
+};
+
+/* ---------- screens ---------- */
+const SCREENS = ["home", "loading", "tempo", "calib", "ready", "game", "results"];
+function show(id) {
+  SCREENS.forEach(s => { $(s).hidden = s !== id; });
+  if (id === "ready") syncReadyUi();
+  $("ytDock").hidden = !(G.mode === "yt" && (id === "tempo" || id === "game"));
+  if (G.mode === "yt" && id !== "tempo" && id !== "game" && id !== "loading") ytCall("pauseVideo");
+}
+function homeMsg(t) { $("homeMsg").textContent = t || ""; }
+function progress(p, title, sub) {
+  $("loadBar").style.width = Math.round(p * 100) + "%";
+  if (title) $("loadTitle").textContent = title;
+  if (sub !== undefined) $("loadSub").textContent = sub;
+}
+const tick = () => new Promise(r => setTimeout(r, 0));
+function fmtTime(s) { s = Math.round(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+
+/* ---------- audio loading ---------- */
+function ensureCtx() {
+  if (!G.ctx) { const AC = window.AudioContext || window.webkitAudioContext; G.ctx = new AC(); }
+  if (G.ctx.state === "suspended") G.ctx.resume().catch(() => {});
+  return G.ctx;
+}
+function decode(ab) {
+  return new Promise((res, rej) => {
+    const p = G.ctx.decodeAudioData(ab, res, rej);
+    if (p && p.catch) p.catch(rej);
+  });
+}
+const YT_ID = /(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/i;
+const STREAMING = /(spotify\.com|soundcloud\.com|music\.apple\.com|melon\.com|genie\.co\.kr|bugs\.co\.kr|vibe\.naver\.com|flo\.com)/i;
+
+async function loadFromUrl(url) {
+  homeMsg("");
+  if (!/^https?:\/\//i.test(url)) { homeMsg("https:// 로 시작하는 주소를 넣어 주세요."); return; }
+  const ym = url.match(YT_ID);
+  if (ym) { loadYoutube(ym[1]); return; }
+  if (/youtube\.com|youtu\.be/i.test(url)) { homeMsg("영상 주소를 찾지 못했습니다. 유튜브 영상의 공유 링크를 붙여 넣어 주세요."); return; }
+  if (STREAMING.test(url)) {
+    homeMsg("이 스트리밍 서비스 링크는 브라우저가 소리 데이터를 읽을 수 없습니다. 오디오 파일 주소를 넣거나, 노래 파일을 직접 골라 주세요.");
+    return;
+  }
+  ensureCtx(); leaveYoutube();
+  show("loading"); progress(0.05, "노래를 불러오는 중", "링크에서 내려받고 있어요");
+  let ab;
+  try {
+    const r = await fetch(url, { mode: "cors" });
+    if (!r.ok) throw new Error("http " + r.status);
+    ab = await r.arrayBuffer();
+  } catch (e) {
+    show("home");
+    homeMsg("이 링크는 불러올 수 없습니다. 해당 사이트나 지금 보고 있는 화면이 외부 접근을 막고 있어요. 노래 파일을 직접 골라 주세요.");
+    return;
+  }
+  let name = "링크로 넣은 노래";
+  try { name = decodeURIComponent(new URL(url).pathname.split("/").pop()).replace(/\.[a-z0-9]+$/i, "") || name; } catch (e) {}
+  await prepare(ab, name);
+}
+
+async function loadFromFile(file) {
+  homeMsg(""); ensureCtx(); leaveYoutube();
+  show("loading"); progress(0.05, "노래를 불러오는 중", "파일을 읽고 있어요");
+  let ab;
+  try { ab = await file.arrayBuffer(); }
+  catch (e) { show("home"); homeMsg("파일을 읽지 못했습니다. 다시 골라 주세요."); return; }
+  await prepare(ab, file.name.replace(/\.[a-z0-9]+$/i, ""));
+}
+
+async function prepare(ab, name) {
+  let buf;
+  try { progress(0.15, "노래를 불러오는 중", "소리를 푸는 중이에요"); buf = await decode(ab); }
+  catch (e) { show("home"); homeMsg("오디오로 열 수 없는 파일입니다. mp3, m4a, wav 파일로 다시 해보세요."); return; }
+  await useBuffer(buf, name);
+}
+
+async function useBuffer(buf, name) {
+  if (buf.duration < 5) { show("home"); homeMsg("노래가 너무 짧습니다. 5초보다 긴 곡을 넣어 주세요."); return; }
+  G.buffer = buf; G.name = name; G.dur = buf.duration;
+  progress(0.2, "박자를 찾는 중", "노래를 듣고 노트를 만들고 있어요");
+  await tick();
+  const an = await analyze(buf, p => progress(0.2 + 0.8 * p));
+  G.onsets = an.onsets; G.beats = an.beats; G.bpm = an.bpm; G.eng = an.eng; G.ft = an.ft;
+  buildChart();
+  $("readyLabel").textContent = "준비 완료";
+  $("songName").textContent = name;
+  $("statLen").textContent = fmtTime(buf.duration);
+  show("ready");
+}
+
+/* ---------- demo song (synthesized) ---------- */
+async function loadDemo() {
+  homeMsg(""); ensureCtx(); leaveYoutube();
+  show("loading"); progress(0.1, "데모 곡을 만드는 중", "신시사이저로 연주하고 있어요");
+  await tick();
+  try { await useBuffer(await renderDemo(), "데모 곡 · 네온 러너"); }
+  catch (e) { show("home"); homeMsg("데모 곡을 만들지 못했습니다. 노래 파일을 골라 주세요."); }
+}
+function renderDemo() {
+  const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const sr = 44100, bpm = 124, beat = 60 / bpm, bars = 24, t0 = 0.4;
+  const dur = t0 + bars * 4 * beat + 1.5;
+  const oc = new OAC(2, Math.ceil(sr * dur), sr);
+  const master = oc.createGain(); master.gain.value = 0.85; master.connect(oc.destination);
+  const nb = oc.createBuffer(1, sr, sr), nd = nb.getChannelData(0);
+  for (let i = 0; i < sr; i++) nd[i] = Math.random() * 2 - 1;
+  const env = (g, t, peak, len) => { g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.001, t + len); };
+  function kick(t) {
+    const o = oc.createOscillator(), g = oc.createGain();
+    o.frequency.setValueAtTime(165, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    env(g, t, 1, 0.3); o.connect(g).connect(master); o.start(t); o.stop(t + 0.32);
+  }
+  function noise(t, type, freq, peak, len) {
+    const s = oc.createBufferSource(), f = oc.createBiquadFilter(), g = oc.createGain();
+    s.buffer = nb; f.type = type; f.frequency.value = freq; env(g, t, peak, len);
+    s.connect(f).connect(g).connect(master); s.start(t, Math.random() * 0.5); s.stop(t + len + 0.02);
+  }
+  function tone(t, type, freq, cutoff, peak, len) {
+    const o = oc.createOscillator(), f = oc.createBiquadFilter(), g = oc.createGain();
+    o.type = type; o.frequency.value = freq; f.type = "lowpass"; f.frequency.value = cutoff;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    o.connect(f).connect(g).connect(master); o.start(t); o.stop(t + len + 0.02);
+  }
+  const roots = [110, 87.31, 130.81, 98];
+  const arps = [[440, 523.25, 659.25], [349.23, 440, 523.25], [523.25, 659.25, 783.99], [392, 493.88, 587.33]];
+  const pat = [0, 1, 2, 1, 0, 2, 1, 2];
+  for (let b = 0; b < bars; b++) {
+    const bt = t0 + b * 4 * beat, c = b % 4;
+    const brk = b >= 12 && b < 16, full = b >= 16, intro = b < 4;
+    for (let q = 0; q < 4; q++) {
+      const t = bt + q * beat;
+      if (!brk) kick(t);
+      if (!intro && !brk && (q === 1 || q === 3)) noise(t, "bandpass", 1800, 0.55, 0.16);
+      if (!brk) noise(t + beat / 2, "highpass", 7000, 0.18, 0.04);
+      if (full) noise(t + beat / 4, "highpass", 8000, 0.08, 0.03);
+      if (!brk) { tone(t, "sawtooth", roots[c], 480, 0.3, beat * 0.45); tone(t + beat / 2, "sawtooth", roots[c], 480, 0.22, beat * 0.4); }
+    }
+    if (!intro) {
+      for (let s = 0; s < 8; s++) {
+        if (brk) {   // breakdown: long held notes, two per bar
+          if (s % 4 === 0) {
+            const o = oc.createOscillator(), f = oc.createBiquadFilter(), g = oc.createGain(), t = bt + s * beat / 2, len = beat * 1.8;
+            o.type = "sawtooth"; o.frequency.value = arps[c][s === 0 ? 0 : 2]; f.type = "lowpass"; f.frequency.value = 1800;
+            g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.2, t + 0.01);
+            g.gain.setValueAtTime(0.2, t + len - 0.06); g.gain.linearRampToValueAtTime(0.0001, t + len);
+            o.connect(f).connect(g).connect(master); o.start(t); o.stop(t + len + 0.02);
+          }
+          continue;
+        }
+        if (!full && !brk && (s === 3 || s === 6)) continue;
+        const f = arps[c][pat[(s + b) % 8]] * (full && s === 7 ? 2 : 1);
+        tone(bt + s * beat / 2, "square", f, 2600, 0.13, brk ? beat * 0.9 : beat * 0.42);
+      }
+    }
+  }
+  return oc.startRendering();
+}
+
+/* ---------- YouTube: official embedded player + tap tempo ---------- */
+function ytCall(fn, ...a) { try { if (G.yt && G.yt[fn]) return G.yt[fn](...a); } catch (e) {} }
+function leaveYoutube() {
+  if (G.yt) { ytCall("destroy"); G.yt = null; }
+  $("ytDock").innerHTML = ""; G.mode = "audio";
+}
+let ytApi = null;
+function loadYtApi() {
+  if (window.YT && YT.Player) return Promise.resolve();
+  if (!ytApi) ytApi = new Promise((res, rej) => {
+    const fail = () => { ytApi = null; rej(new Error("yt api")); };
+    const to = setTimeout(fail, 10000);
+    window.onYouTubeIframeAPIReady = () => { clearTimeout(to); res(); };
+    const s = document.createElement("script");
+    s.src = "https://www.youtube.com/iframe_api"; s.onerror = () => { clearTimeout(to); fail(); };
+    document.head.appendChild(s);
+  });
+  return ytApi;
+}
+async function loadYoutube(id) {
+  homeMsg(""); stopSource(); leaveYoutube();
+  show("loading"); progress(0.3, "유튜브 영상을 불러오는 중", "잠시만요");
+  try { await loadYtApi(); }
+  catch (e) {
+    show("home");
+    homeMsg("지금 보고 있는 화면에서는 유튜브 영상을 열 수 없습니다. 이 게임을 일반 웹 주소에 올린 버전에서 열어 주세요.");
+    return;
+  }
+  G.mode = "yt"; G.ytId = id; G.taps = []; YC.playing = false;
+  $("ytDock").innerHTML = '<div id="ytHost"></div>';
+  let ready = false;
+  const to = setTimeout(() => { if (!ready) { leaveYoutube(); show("home"); homeMsg("영상을 불러오지 못했습니다. 링크를 확인하고 다시 해보세요."); } }, 15000);
+  G.yt = new YT.Player("ytHost", {
+    videoId: id, width: "100%", height: "100%",
+    playerVars: { playsinline: 1, rel: 0, fs: 0, disablekb: 1 },
+    events: {
+      onReady: () => { ready = true; clearTimeout(to); progress(1); syncTempoUi(); show("tempo"); },
+      onError: e => {
+        ready = true; clearTimeout(to);
+        const blocked = e.data === 101 || e.data === 150;
+        G.running = false; leaveYoutube(); show("home");
+        homeMsg(blocked ? "이 영상은 올린 사람이 다른 사이트에서 재생하지 못하게 막아 두었습니다. 같은 노래의 다른 영상 링크를 넣어 보세요." : "재생할 수 없는 영상입니다. 링크를 확인하고 다시 해보세요.");
+      },
+      onStateChange: e => {
+        if (G.mode !== "yt" || !G.running) return;
+        if (e.data === 2 && !G.paused && performance.now() - G.startedAt > 1500) pause();
+        if (e.data === 0) finish();
+      }
+    }
+  });
+}
+// getCurrentTime() only updates a few times a second, so run a local clock and steer it toward the player's
+const YC = { playing: false, anchorT: 0, anchorNow: 0, last: -1 };
+function ytClock() {
+  const now = performance.now(), cur = ytCall("getCurrentTime") || 0;
+  if (ytCall("getPlayerState") !== 1) { YC.playing = false; YC.last = cur; return cur; }
+  if (!YC.playing) { YC.playing = true; YC.anchorT = cur; YC.anchorNow = now; YC.last = cur; }
+  let est = YC.anchorT + (now - YC.anchorNow) / 1000;
+  if (cur !== YC.last) {
+    YC.last = cur;
+    const err = cur - est;
+    est = Math.abs(err) > 0.3 ? cur : est + err * 0.15;
+    YC.anchorT = est; YC.anchorNow = now;
+  }
+  return est;
+}
+function calcTempo(taps) {
+  const iv = []; for (let i = 1; i < taps.length; i++) iv.push(taps[i] - taps[i - 1]);
+  iv.sort((a, b) => a - b);
+  const med = iv[iv.length >> 1];
+  // least-squares line through (beat index, tap time)
+  let n = taps.length, sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (const t of taps) { const x = Math.round((t - taps[0]) / med); sx += x; sy += t; sxx += x * x; sxy += x * t; }
+  let beat = (n * sxy - sx * sy) / (n * sxx - sx * sx) || med;
+  while (beat > 0.86) beat /= 2;
+  while (beat < 0.3) beat *= 2;
+  // recorded music almost always has a whole-number tempo; snapping keeps the notes from drifting
+  beat = 60 / Math.round(60 / beat);
+  // a beat time in the middle of the taps, so changing the tempo later pivots around it
+  const anchor = taps[0] + (sy / n - taps[0]) - ((sx / n) - Math.round(sx / n)) * ((n * sxy - sx * sy) / (n * sxx - sx * sx) || med);
+  return { beat, anchor };
+}
+const MIN_TAPS = 16;
+setInterval(() => { if (G.mode === "yt" && G.yt) ytClock(); }, 25);
+function syncTempoUi() {
+  const n = G.taps.length;
+  $("tapCount").textContent = n >= MIN_TAPS ? Math.round(60 / calcTempo(G.taps).beat) + " BPM" : n + " / " + MIN_TAPS;
+  $("tapBpm").textContent = n >= MIN_TAPS ? "계속 두드리면 더 정확해집니다" : "박자에 맞춰 여기를 두드리기";
+  $("tempoOk").disabled = n < MIN_TAPS;
+}
+function tempoTap() {
+  if (ytCall("getPlayerState") !== 1) {
+    ytCall("playVideo");
+    $("tapBpm").textContent = "먼저 위 영상의 재생 버튼을 눌러 주세요";
+    return;
+  }
+  const t = ytClock(), last = G.taps[G.taps.length - 1];
+  if (last !== undefined && (t - last > 2 || t < last)) G.taps = [];
+  if (last !== undefined && t - last < 0.12) return;
+  G.taps.push(t); if (G.taps.length > 32) G.taps.shift();
+  syncTempoUi();
+  const pad = $("tapPad"); pad.classList.add("hit"); setTimeout(() => pad.classList.remove("hit"), 90);
+}
+function tempoDone() {
+  const dur = ytCall("getDuration") || 0;
+  if (dur < 10) { $("tapBpm").textContent = "길이를 알 수 없는 영상입니다. 다른 영상을 넣어 주세요"; return; }
+  const r = calcTempo(G.taps);
+  G.beat = r.beat; G.anchor = r.anchor; G.dur = dur;
+  const vd = ytCall("getVideoData");
+  G.name = (vd && vd.title) || "유튜브 노래";
+  buildChart();
+  $("readyLabel").textContent = "준비 완료";
+  $("songName").textContent = G.name;
+  $("statLen").textContent = fmtTime(dur);
+  show("ready");
+}
+function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function rng(a) { return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+const PATTERNS = {
+  easy:   { calm: ["x.......x.......", "x...x...x......."], main: ["x...x...x...x...", "x...x...x.......", "x.......x...x...", "x...x...x...x.x."], dbl: 0 },
+  normal: { calm: ["x...x...x...x...", "x...x...x.x....."], main: ["x...x.x.x...x.x.", "x.x.x...x.x.x...", "x...x...x.x.x.x.", "x..x..x.x...x...", "x.x.x.x.x...x..."], dbl: 0.2 },
+  hard:   { calm: ["x...x.x.x...x.x.", "x.x.x...x.x.x.x."], main: ["x.x.x.x.x.x.x.x.", "x.xxx.x.x.xxx.x.", "x..x..x.x..x..x.", "xxx.x.x.xxx.x.x.", "x.x.xxx.x.x.x.xx"], fast: ["x.x.x.x.x.x.x.x.", "x.x.x...x.x.x.x.", "x..x..x.x.x.x.x."], dbl: 0.4 }
+};
+function buildGridChart() {
+  const beat = G.beat, step = beat / 4, dur = G.dur, P = PATTERNS[G.diff];
+  const rnd = rng(hashStr(G.ytId + G.diff)), pick = a => a[Math.floor(rnd() * a.length)];
+  const main = P.fast && step < 0.11 ? P.fast : P.main;
+  let first = ((G.anchor % beat) + beat) % beat; while (first < 2) first += beat;
+  const notes = []; let lane = Math.floor(rnd() * 4), calm = true;
+  for (let bar = 0; ; bar++) {
+    const bt = first + bar * 4 * beat; if (bt > dur - 2) break;
+    if (bar % 8 === 0) calm = bar === 0 || rnd() < 0.25;
+    const pat = pick(calm ? P.calm : main), motif = Math.floor(rnd() * 4);
+    let dir = rnd() < 0.5 ? 1 : -1, k = 0;
+    const a = lane, b = (lane + 1 + Math.floor(rnd() * 3)) % 4;
+    for (let s = 0; s < 16; s++) {
+      if (pat[s] !== "x") continue;
+      const t = bt + s * step; if (t > dur - 2) break;
+      if (motif === 0) { lane += dir; if (lane > 3 || lane < 0) { dir = -dir; lane += 2 * dir; } }
+      else if (motif === 1) lane = k % 2 ? b : a;
+      else if (motif === 2) lane = (lane + 2 + (k % 2)) % 4;
+      else { let n; do { n = Math.floor(rnd() * 4); } while (n === lane); lane = n; }
+      notes.push({ t, lane, state: 0 });
+      if (s % 8 === 0 && !calm && rnd() < P.dbl) notes.push({ t, lane: (lane + 2) % 4, state: 0 });
+      k++;
+    }
+  }
+  G.chart = notes;
+  $("statNotes").textContent = notes.length;
+}
+
+/* ---------- beat analysis: spectral flux onset detection ---------- */
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -2 * Math.PI / len, wr = Math.cos(ang), wi = Math.sin(ang), half = len >> 1;
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < half; k++) {
+        const a = i + k, b = a + half;
+        const xr = re[b] * cr - im[b] * ci, xi = re[b] * ci + im[b] * cr;
+        re[b] = re[a] - xr; im[b] = im[a] - xi; re[a] += xr; im[a] += xi;
+        const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t;
+      }
+    }
+  }
+}
+
+async function analyze(buffer, onProgress) {
+  const dec = buffer.sampleRate >= 32000 ? 2 : 1, sr = buffer.sampleRate / dec;
+  const len = Math.floor(buffer.length / dec), nch = buffer.numberOfChannels;
+  const mono = new Float32Array(len);
+  for (let c = 0; c < nch; c++) {
+    const d = buffer.getChannelData(c);
+    for (let i = 0; i < len; i++) mono[i] += d[i * dec] / nch;
+  }
+  const N = 1024, H = 256, bins = N / 2;
+  const frames = Math.max(0, Math.floor((len - N) / H) + 1);
+  const flux = new Float32Array(frames), cent = new Float32Array(frames), lowf = new Float32Array(frames), eng = new Float32Array(frames);
+  const lowBins = Math.max(3, Math.round(250 / (sr / N)));
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+  const re = new Float32Array(N), im = new Float32Array(N);
+  let prev = new Float32Array(bins), cur = new Float32Array(bins);
+  for (let f = 0; f < frames; f++) {
+    const o = f * H;
+    let en = 0;
+    for (let i = 0; i < N; i++) { const x = mono[o + i] * win[i]; re[i] = x; im[i] = 0; en += x * x; }
+    eng[f] = en;
+    fft(re, im);
+    let sum = 0, wsum = 0, low = 0;
+    for (let k = 1; k < bins; k++) {
+      const m = Math.log1p(20 * Math.sqrt(re[k] * re[k] + im[k] * im[k]));
+      cur[k] = m;
+      const d = m - prev[k];
+      if (d > 0) { sum += d; wsum += d * k; if (k <= lowBins) low += d; }
+    }
+    flux[f] = sum; lowf[f] = low; cent[f] = sum > 0 ? wsum / sum : 0;
+    const t = prev; prev = cur; cur = t;
+    if (f % 600 === 599) { onProgress(f / frames); await tick(); }
+  }
+  // onset envelope: how far each frame rises above its local average
+  const fr = sr / H, w = Math.round(0.4 * fr);
+  const pre = new Float64Array(frames + 1);
+  for (let i = 0; i < frames; i++) pre[i + 1] = pre[i] + flux[i];
+  const gmean = (frames ? pre[frames] / frames : 0) + 1e-9, eps = 0.15 * gmean;
+  const env = new Float32Array(frames), lmean = new Float32Array(frames);
+  let ss = 0;
+  for (let i = 0; i < frames; i++) {
+    const a = Math.max(0, i - w), b = Math.min(frames, i + w + 1);
+    lmean[i] = (pre[b] - pre[a]) / (b - a);
+    env[i] = Math.max(0, flux[i] - lmean[i]); ss += env[i] * env[i];
+  }
+  const sd = Math.sqrt(ss / Math.max(1, frames)) || 1;
+  // the beat is carried by kick and bass, so the low band counts extra when looking for it
+  const prl = new Float64Array(frames + 1);
+  for (let i = 0; i < frames; i++) prl[i + 1] = prl[i] + lowf[i];
+  const lenv = new Float32Array(frames); let sl = 0;
+  for (let i = 0; i < frames; i++) {
+    const a = Math.max(0, i - w), b = Math.min(frames, i + w + 1);
+    lenv[i] = Math.max(0, lowf[i] - (prl[b] - prl[a]) / (b - a)); sl += lenv[i] * lenv[i];
+  }
+  const sdl = Math.sqrt(sl / Math.max(1, frames)) || 1;
+  for (let i = 0; i < frames; i++) env[i] = env[i] / sd + 2 * lenv[i] / sdl;
+  await tick();
+
+  // tempo: the lag at which the envelope best repeats, with a mild preference for mid tempos
+  let period = Math.round(fr / 2), bestSc = 0;
+  for (let lag = Math.floor(fr * 60 / 190); lag <= Math.ceil(fr * 60 / 65); lag++) {
+    let a1 = 0, a2 = 0;
+    for (let i = 0; i + 2 * lag < frames; i += 2) { a1 += env[i] * env[i + lag]; a2 += env[i] * env[i + 2 * lag]; }
+    const sc = (a1 + 0.5 * a2) * Math.exp(-0.5 * Math.pow(Math.log2(60 * fr / lag / 120) / 0.8, 2));
+    if (sc > bestSc) { bestSc = sc; period = lag; }
+  }
+  await tick();
+  // beat tracking by dynamic programming: beats sit on strong onsets and stay about one period apart
+  const lo = Math.max(1, Math.round(period / 2)), hi = Math.round(period * 2);
+  const cost = new Float32Array(hi + 1);
+  for (let d = lo; d <= hi; d++) { const l = Math.log(d / period); cost[d] = 100 * l * l; }
+  const cum = new Float32Array(frames), back = new Int32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    let bs = 0, bj = -1;
+    for (let d = lo; d <= hi && d <= i; d++) { const sc = cum[i - d] - cost[d]; if (sc > bs) { bs = sc; bj = i - d; } }
+    cum[i] = env[i] + bs; back[i] = bj;
+  }
+  let end = frames - 1;
+  for (let i = Math.max(0, frames - period); i < frames; i++) if (cum[i] > cum[end]) end = i;
+  const beats = [];
+  for (let i = end; i >= 0; i = back[i]) beats.push((i * H + N / 2) / sr);
+  beats.reverse();
+
+  // onsets: local maxima of the flux that stand out from their surroundings
+  const out = [];
+  let bi = 0;
+  for (let i = 3; i < frames - 3; i++) {
+    const v = flux[i];
+    if (v <= flux[i - 1] || v < flux[i + 1] || v < flux[i - 2] || v < flux[i + 2] || v < flux[i - 3] || v < flux[i + 3]) continue;
+    const s = v / (lmean[i] + eps);
+    if (s <= 1.3) continue;
+    const t = (i * H + N / 2) / sr;
+    // where the onset sits inside its beat: 0 on the beat, 1 half, 2 quarter, 3 off the grid
+    while (bi + 1 < beats.length && beats[bi + 1] <= t) bi++;
+    let g = 3;
+    if (beats.length > 1 && t >= beats[0] - 0.04 && t <= beats[beats.length - 1] + 0.04) {
+      const b0 = beats[bi], len = (bi + 1 < beats.length ? beats[bi + 1] : b0 + (b0 - beats[bi - 1])) - b0;
+      const q = (t - b0) / len * 4, qi = Math.round(q);
+      if (Math.abs(q - qi) * len / 4 < 0.04) g = qi % 4 === 0 ? 0 : qi % 2 === 0 ? 1 : 2;
+    }
+    out.push({ t, s, v: (v - lmean[i]) / gmean, c: cent[i], g, bi });
+  }
+  onProgress(1);
+  return { onsets: out, beats, bpm: 60 * fr / period, eng, ft: { sr, H, N } };
+}
+
+/* ---------- chart: pick notes for the difficulty and place them in lanes ---------- */
+function buildChart() {
+  if (G.mode === "yt") { buildGridChart(); return; }
+  const d = DIFFS[G.diff], dur = G.dur;
+  // every 4 bars, whichever part is carrying the music there (low: drums and bass, high: melody) gets priority
+  const allC = G.onsets.map(o => o.c).sort((a, b) => a - b), medC = allC.length ? allC[allC.length >> 1] : 0;
+  const sec = new Map();
+  for (const o of G.onsets) { const k = Math.floor(o.bi / 16); if (!sec.has(k)) sec.set(k, [0, 0]); sec.get(k)[o.c > medC ? 1 : 0] += o.v; }
+  const lead = o => { const sd = sec.get(Math.floor(o.bi / 16)), side = o.c > medC ? 1 : 0; return sd[side] >= sd[1 - side] ? 1.5 : 1; };
+  const score = o => o.v * d.w[o.g] * lead(o);
+  const cand = G.onsets.filter(o => o.t > 0.3 && o.t < dur - 0.3).sort((a, b) => score(b) - score(a));
+  // density is capped per 2 seconds, not per song, so loud parts cannot use up the quiet parts' notes
+  const perBucket = Math.ceil(d.nps * 2 * 1.25), bucketN = new Map(), picked = [];
+  // best first (loud and on the beat), keeping a minimum gap; bucket index keeps the gap check cheap
+  const taken = new Map(), key = t => Math.floor(t / d.minGap);
+  for (const o of cand) {
+    const bk = Math.floor(o.t / 2); if ((bucketN.get(bk) || 0) >= perBucket) continue;
+    const k = key(o.t); let ok = true;
+    for (let j = k - 1; j <= k + 1 && ok; j++) { const t = taken.get(j); if (t !== undefined && Math.abs(t - o.t) < d.minGap) ok = false; }
+    if (ok) { taken.set(k, o.t); picked.push(o); bucketN.set(bk, (bucketN.get(bk) || 0) + 1); }
+  }
+  picked.sort((a, b) => a.t - b.t);
+  const onBeat = picked.filter(o => o.g === 0).map(o => o.v).sort((a, b) => b - a);
+  const strong = d.doubles > 0 && onBeat.length ? onBeat[Math.floor(picked.length * d.doubles)] || Infinity : Infinity;
+  // lanes follow the sound: darker sounds (kick, bass) on the left pair, brighter (melody, snare) on the right pair,
+  // and inside each pair the lane follows whether the sound went up or down
+  const cs = picked.map(o => o.c).sort((a, b) => a - b), mid = cs.length ? cs[cs.length >> 1] : 0;
+  const hand = [{ lane: 1, c: 0, t: -9 }, { lane: 2, c: 0, t: -9 }];
+  const notes = []; let prevT = -9;
+  for (const o of picked) {
+    const side = o.c > mid ? 1 : 0, h = hand[side], base = side * 2;
+    let lane = h.lane;
+    if (h.c > 0) {
+      const r = o.c / h.c;
+      lane = r > 1.05 ? base + 1 : r < 0.95 ? base : base + (1 - (h.lane - base));
+      if (lane === h.lane && o.t - h.t < 0.4) lane = base + (1 - (h.lane - base));
+    }
+    notes.push({ t: o.t, lane, state: 0 });
+    if (o.g === 0 && o.v > strong && o.t - prevT > 0.3) notes.push({ t: o.t, lane: (lane + 2) % 4, state: 0 });
+    h.lane = lane; h.c = o.c; h.t = o.t; prevT = o.t;
+  }
+  // long notes: when nothing else follows for a while and the sound keeps ringing, hold instead of tap
+  const E = G.eng, F = G.ft;
+  let chart = notes;
+  if (E && E.length) {
+    const fOf = t => Math.max(0, Math.min(E.length - 1, Math.round((t * F.sr - F.N / 2) / F.H)));
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      if (i > 0 && notes[i - 1].t === n.t) continue;
+      const twin = i + 1 < notes.length && notes[i + 1].t === n.t ? notes[i + 1] : null, nx = i + (twin ? 2 : 1);
+      const maxLen = Math.min(4, (nx < notes.length ? notes[nx].t : dur - 0.5) - n.t - 0.18);
+      if (maxLen < 0.3) continue;
+      const f0 = fOf(n.t), f1 = fOf(n.t + 0.1), fEnd = fOf(n.t + maxLen);
+      let pk = 0; for (let f = f0; f <= f1; f++) pk = Math.max(pk, E[f]);
+      if (pk <= 0) continue;
+      let f = f1, quiet = 0;
+      while (f < fEnd) { if (E[f] < pk * 0.3) { if (++quiet >= 3) break; } else quiet = 0; f++; }
+      const len = (f - f0) * F.H / F.sr;
+      if (f >= fEnd) n.end = n.t + maxLen; else if (len >= 0.45) n.end = n.t + len;
+      if (n.end !== undefined && twin) twin.drop = true;   // a long note stands alone
+    }
+    chart = notes.filter(n => !n.drop);
+  }
+  G.chart = chart;
+  $("statNotes").textContent = chart.length;
+}
+
+/* ---------- ready screen ---------- */
+function syncReadyUi() {
+  document.querySelectorAll("#diffSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === G.diff)));
+  $("offOut").textContent = (G.offset > 0 ? "+" : "") + G.offset + " ms";
+  $("spdOut").textContent = G.speed.toFixed(2).replace(/0$/, "") + "x";
+  $("bpmRow").hidden = G.mode !== "yt";
+  $("bpmOut").textContent = Math.round(60 / G.beat) + " BPM";
+}
+function nudgeBpm(d) { G.beat = 60 / Math.max(60, Math.min(220, Math.round(60 / G.beat) + d)); buildChart(); syncReadyUi(); }
+const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+function nudgeSpeed(d) { G.speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(G.speed) + d))]; store.set("bd-speed", String(G.speed)); syncReadyUi(); }
+$("spdMinus").addEventListener("click", () => nudgeSpeed(-1));
+$("spdPlus").addEventListener("click", () => nudgeSpeed(1));
+$("bpmMinus").addEventListener("click", () => nudgeBpm(-1));
+$("bpmPlus").addEventListener("click", () => nudgeBpm(1));
+$("diffSeg").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  G.diff = b.dataset.d; store.set("bd-diff", G.diff); buildChart(); syncReadyUi();
+});
+function nudge(d) { $("readyMsg").textContent = ""; G.offset = Math.max(-500, Math.min(500, G.offset + d)); store.set("bd-offset", String(G.offset)); syncReadyUi(); }
+$("offMinus").addEventListener("click", () => nudge(-10));
+$("offPlus").addEventListener("click", () => nudge(10));
+syncReadyUi();
+
+/* ---------- gameplay ---------- */
+const cv = $("cv"), c2 = cv.getContext("2d");
+const V = { w: 0, h: 0, fx: 0, fw: 0, lw: 0, hitY: 0, dpr: 1 };
+function resize() {
+  const r = cv.getBoundingClientRect();
+  if (!r.width) return;
+  V.dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  V.w = r.width; V.h = r.height;
+  cv.width = Math.round(V.w * V.dpr); cv.height = Math.round(V.h * V.dpr);
+  V.fw = Math.min(V.w, 520); V.fx = (V.w - V.fw) / 2; V.lw = V.fw / 4; V.hitY = V.h * 0.8;
+}
+addEventListener("resize", resize);
+
+// ctx.currentTime moves in audio-block steps (coarse on some phones), so run a smooth clock steered toward it
+const AK = { anchorT: 0, anchorNow: 0, last: -1 };
+function ctxNow() {
+  const now = performance.now(), cur = G.ctx.currentTime;
+  if (G.ctx.state !== "running") { AK.last = -1; return cur; }
+  if (AK.last < 0) { AK.anchorT = cur; AK.anchorNow = now; AK.last = cur; return cur; }
+  let est = AK.anchorT + (now - AK.anchorNow) / 1000;
+  if (cur !== AK.last) {
+    AK.last = cur;
+    const err = cur - est;
+    est = Math.abs(err) > 0.1 ? cur : est + err * 0.1;
+    AK.anchorT = est; AK.anchorNow = now;
+  }
+  return est;
+}
+function reportedLatency() { const l = G.ctx.outputLatency || G.ctx.baseLatency || 0; return l > 0 && l < 0.5 ? l : 0; }
+function songTime() {
+  if (G.mode === "yt") return ytClock() - G.offset / 1000;
+  return ctxNow() - G.startAt - G.lat - G.offset / 1000;
+}
+
+/* ---------- sync calibration: tap along to a click, measure how late the phone really is ---------- */
+const CAL = { on: false, t0: 0, iv: 0.9, n: 16, need: 10, taps: [], nodes: [], timer: 0, poll: 0 };
+function stopCalib() {
+  CAL.on = false; clearTimeout(CAL.timer); clearInterval(CAL.poll);
+  CAL.nodes.forEach(o => { try { o.stop(); } catch (e) {} }); CAL.nodes = [];
+}
+function startCalib() {
+  ensureCtx(); stopCalib(); stopSource(); ytCall("pauseVideo");
+  show("calib");
+  CAL.taps = []; CAL.on = true; G.lat = reportedLatency(); AK.last = -1;
+  $("calCount").textContent = "0 / " + CAL.need;
+  $("calInfo").textContent = "소리에 맞춰 여기를 두드리기";
+  CAL.t0 = G.ctx.currentTime + 1;
+  for (let i = 0; i < CAL.n; i++) {
+    const o = G.ctx.createOscillator(), g = G.ctx.createGain(), t = CAL.t0 + i * CAL.iv;
+    o.type = "square"; o.frequency.value = 1400;
+    g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    o.connect(g).connect(G.ctx.destination); o.start(t); o.stop(t + 0.06); CAL.nodes.push(o);
+  }
+  CAL.poll = setInterval(ctxNow, 20);
+  CAL.timer = setTimeout(endCalib, (1 + CAL.n * CAL.iv + 0.4) * 1000);
+}
+function calTap() {
+  if (!CAL.on) return;
+  const t = ctxNow() - G.lat - CAL.t0, k = Math.round(t / CAL.iv);
+  if (k < 0 || k >= CAL.n) return;
+  CAL.taps.push((t - k * CAL.iv) * 1000);
+  $("calCount").textContent = CAL.taps.length + " / " + CAL.need;
+  const pad = $("calPad"); pad.classList.add("hit"); setTimeout(() => pad.classList.remove("hit"), 90);
+  if (CAL.taps.length >= CAL.need) endCalib();
+}
+function endCalib() {
+  if (!CAL.on) return;
+  stopCalib();
+  const a = CAL.taps.slice(1).sort((x, y) => x - y);   // first tap is usually a late reaction
+  if (a.length < 5) { $("calInfo").textContent = "두드린 횟수가 부족합니다. '다시 하기'를 눌러 주세요"; return; }
+  const spread = a[Math.floor(a.length * 0.8)] - a[Math.floor(a.length * 0.2)];
+  if (spread > 130) { $("calInfo").textContent = "두드린 간격이 들쭉날쭉합니다. '다시 하기'를 눌러 주세요"; return; }
+  G.offset = Math.max(-500, Math.min(500, Math.round(a[a.length >> 1] / 5) * 5));
+  G.calibrated = true; store.set("bd-offset", String(G.offset)); store.set("bd-cal", "1");
+  show("ready");
+  $("readyMsg").textContent = "싱크를 " + (G.offset > 0 ? "+" : "") + G.offset + " ms로 맞췄습니다. 이어폰을 바꾸면 다시 맞춰 주세요.";
+}
+
+function startGame() {
+  ensureCtx();
+  if (!G.calibrated) { startCalib(); return; }
+  $("readyMsg").textContent = ""; G.lat = reportedLatency(); AK.last = -1;
+  stopSource();
+  G.chart.forEach(n => { n.state = 0; });
+  const lanes = [[], [], [], []];
+  G.chart.forEach(n => lanes[n.lane].push(n));
+  G.play = {
+    lanes, heads: [0, 0, 0, 0], drawFrom: 0,
+    score: 0, combo: 0, maxCombo: 0, p: 0, g: 0, o: 0, m: 0,
+    life: 100, fever: 0, feverUntil: -99, holding: [null, null, null, null], failed: false,
+    judge: "", judgeColor: "#fff", judgeAt: -9, press: [-9, -9, -9, -9], hitFx: [-9, -9, -9, -9], parts: []
+  };
+  G.running = true; G.paused = false;
+  $("pauseOverlay").hidden = true;
+  show("game"); resize();
+  G.startedAt = performance.now();
+  if (G.mode === "yt") {
+    YC.playing = false;
+    ytCall("seekTo", 0, true); ytCall("playVideo");
+  } else {
+    const src = G.ctx.createBufferSource();
+    src.buffer = G.buffer; src.connect(G.ctx.destination);
+    G.startAt = G.ctx.currentTime + LEAD_IN;
+    src.start(G.startAt);
+    G.clk = { c: G.ctx.currentTime, p: performance.now(), ok: true };
+    G.source = src;
+  }
+  requestAnimationFrame(frame);
+}
+function stopSource() {
+  if (G.source) { try { G.source.stop(); } catch (e) {} try { G.source.disconnect(); } catch (e) {} G.source = null; }
+}
+
+// scoring, combo, gauge and fever for one judgment
+function addJudge(kind, lane) {
+  const P = G.play, now = performance.now(), t = songTime();
+  if (kind === "m") {
+    P.m++; P.combo = 0; P.life -= 8; P.feverUntil = -99;
+    P.judge = "MISS"; P.judgeColor = "#a29bbd"; P.judgeAt = now; return;
+  }
+  P.combo++; if (P.combo > P.maxCombo) P.maxCombo = P.combo;
+  const base = kind === "p" ? 100 : kind === "g" ? 70 : 40, inFever = t < P.feverUntil;
+  P.score += Math.round(base * (1 + Math.min(P.combo, 100) / 100) * (inFever ? 2 : 1));
+  P[kind]++;
+  P.life = Math.min(100, P.life + (kind === "p" ? 1.2 : kind === "g" ? 0.8 : 0.3));
+  if (!inFever) {
+    P.fever += kind === "p" ? 2.5 : kind === "g" ? 1.5 : 0.5;
+    if (P.fever >= 100) { P.fever = 0; P.feverUntil = t + FEVER_LEN; }
+  }
+  P.judge = kind === "p" ? "PERFECT" : kind === "g" ? "GREAT" : "GOOD";
+  P.judgeColor = kind === "p" ? LANES[1] : kind === "g" ? LANES[2] : LANES[3];
+  P.judgeAt = now; P.hitFx[lane] = now;
+  if (!reduceMotion) {
+    const x = V.fx + (lane + 0.5) * V.lw;
+    for (let i = 0; i < 7; i++) {
+      const a = Math.random() * Math.PI * 2, sp = 90 + Math.random() * 190;
+      P.parts.push({ x, y: V.hitY, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 120, t: now, c: LANES[lane] });
+    }
+  }
+}
+// note states: 0 waiting, 1 done, 2 missed, 3 being held, 4 let go too early
+function judgeNote(n, kind) {
+  const P = G.play, long = n.end !== undefined;
+  if (kind === "m") { n.state = 2; addJudge("m", n.lane); if (long) P.m++; return; }
+  if (long) { n.state = 3; P.holding[n.lane] = n; } else n.state = 1;
+  addJudge(kind, n.lane);
+}
+function release(lane) {
+  const P = G.play; if (!G.running || G.paused || !P) return;
+  const n = P.holding[lane]; if (!n) return;
+  P.holding[lane] = null;
+  if (songTime() >= n.end - 0.15) { n.state = 1; addJudge("p", lane); }
+  else { n.state = 4; addJudge("m", lane); }
+}
+
+function tap(lane) {
+  if (!G.running || G.paused) return;
+  const P = G.play, t = songTime();
+  P.press[lane] = performance.now();
+  const arr = P.lanes[lane];
+  let i = P.heads[lane];
+  while (i < arr.length && arr[i].state !== 0) i++;
+  P.heads[lane] = i;
+  if (i >= arr.length) return;
+  const dt = Math.abs(arr[i].t - t);
+  if (dt > WIN.good) return;
+  judgeNote(arr[i], dt <= WIN.perfect ? "p" : dt <= WIN.great ? "g" : "o");
+}
+
+const PT = new Map();   // pointer id -> lane it went down on
+cv.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const lane = Math.max(0, Math.min(3, Math.floor((e.clientX - r.left - V.fx) / V.lw)));
+  PT.set(e.pointerId, lane);
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
+  tap(lane);
+});
+function pointerGone(e) {
+  const lane = PT.get(e.pointerId); if (lane === undefined) return;
+  PT.delete(e.pointerId);
+  let still = false; PT.forEach(v => { if (v === lane) still = true; });
+  if (!still) release(lane);
+}
+cv.addEventListener("pointerup", pointerGone);
+cv.addEventListener("pointercancel", pointerGone);
+cv.addEventListener("contextmenu", e => e.preventDefault());
+const KEYS = { KeyD: 0, KeyF: 1, KeyJ: 2, KeyK: 3 };
+addEventListener("keydown", e => {
+  if ($("game").hidden) return;
+  if (e.code === "Escape") { G.paused ? resume() : pause(); return; }
+  if (e.repeat) return;
+  if (e.code in KEYS) tap(KEYS[e.code]);
+});
+addEventListener("keyup", e => { if (!$("game").hidden && e.code in KEYS) release(KEYS[e.code]); });
+
+function rr(x, y, w, h, r) {
+  c2.beginPath(); c2.moveTo(x + r, y); c2.arcTo(x + w, y, x + w, y + h, r); c2.arcTo(x + w, y + h, x, y + h, r);
+  c2.arcTo(x, y + h, x, y, r); c2.arcTo(x, y, x + w, y, r); c2.closePath();
+}
+
+function frame() {
+  if (!G.running || G.paused) return;
+  const P = G.play, t = songTime(), now = performance.now(), dur = G.dur;
+
+  // notes that slipped past the window are misses
+  for (let l = 0; l < 4; l++) {
+    const arr = P.lanes[l]; let i = P.heads[l];
+    while (i < arr.length && (arr[i].state !== 0 || arr[i].t < t - WIN.good)) {
+      if (arr[i].state === 0) judgeNote(arr[i], "m");
+      i++;
+    }
+    P.heads[l] = i;
+    const hn = P.holding[l];
+    if (hn) { P.press[l] = now; if (t >= hn.end) { P.holding[l] = null; hn.state = 1; addJudge("p", l); } }
+  }
+  if (P.life <= 0) { P.failed = true; finish(); return; }
+  const inFever = t < P.feverUntil, AP = APPROACH / G.speed;
+
+  const { w, h, fx, fw, lw, hitY } = V;
+  c2.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
+  c2.fillStyle = "#120f1d"; c2.fillRect(0, 0, w, h);
+  c2.fillStyle = inFever ? "#2a1d2e" : "#171326"; c2.fillRect(fx, 0, fw, h);
+
+  // lanes: press glow and dividers
+  for (let l = 0; l < 4; l++) {
+    const x = fx + l * lw, age = (now - P.press[l]) / 180;
+    if (age < 1) {
+      const gr = c2.createLinearGradient(0, hitY - h * 0.45, 0, h);
+      gr.addColorStop(0, "rgba(255,255,255,0)"); gr.addColorStop(1, LANES[l]);
+      c2.globalAlpha = 0.28 * (1 - age); c2.fillStyle = gr; c2.fillRect(x, hitY - h * 0.45, lw, h); c2.globalAlpha = 1;
+    }
+    c2.globalAlpha = 0.1; c2.fillStyle = LANES[l]; c2.fillRect(x, hitY + 16, lw, h - hitY); c2.globalAlpha = 1;
+  }
+  c2.strokeStyle = "#322c4d"; c2.lineWidth = 1;
+  for (let l = 0; l <= 4; l++) { const x = Math.round(fx + l * lw) + 0.5; c2.beginPath(); c2.moveTo(x, 0); c2.lineTo(x, h); c2.stroke(); }
+
+  // receptors on the hit line
+  const nh = Math.max(18, Math.min(26, lw * 0.26)), pad = 7;
+  for (let l = 0; l < 4; l++) {
+    const x = fx + l * lw + pad, fxAge = (now - P.hitFx[l]) / 220;
+    rr(x, hitY - nh / 2, lw - pad * 2, nh, 7);
+    c2.lineWidth = 2.5; c2.strokeStyle = LANES[l]; c2.globalAlpha = 0.75; c2.stroke(); c2.globalAlpha = 1;
+    if (fxAge < 1) {
+      const g = 10 * fxAge;
+      rr(x - g, hitY - nh / 2 - g, lw - pad * 2 + g * 2, nh + g * 2, 7 + g);
+      c2.globalAlpha = 0.9 * (1 - fxAge); c2.fillStyle = LANES[l]; c2.fill(); c2.globalAlpha = 1;
+    }
+  }
+
+  // notes (long notes draw a body from head to tail; a held head stays on the line)
+  const speed = hitY / AP, ch = G.chart;
+  while (P.drawFrom < ch.length && (ch[P.drawFrom].end || ch[P.drawFrom].t) < t - 0.4) P.drawFrom++;
+  for (let i = P.drawFrom; i < ch.length; i++) {
+    const n = ch[i]; if (n.t - t > AP + 0.1) break;
+    if (n.state === 1) continue;
+    const x = fx + n.lane * lw + pad, dim = n.state === 2 || n.state === 4;
+    let y = hitY - (n.t - t) * speed;
+    if (n.end !== undefined) {
+      if (n.state === 3) y = hitY;
+      const yt = Math.max(-nh, hitY - (n.end - t) * speed);
+      if (yt < y) {
+        c2.globalAlpha = dim ? 0.15 : n.state === 3 ? 0.85 : 0.5; c2.fillStyle = LANES[n.lane];
+        rr(x + 8, yt, lw - pad * 2 - 16, y - yt, 6); c2.fill();
+      }
+    }
+    c2.globalAlpha = dim ? 0.25 : 1;
+    rr(x, y - nh / 2, lw - pad * 2, nh, 7); c2.fillStyle = LANES[n.lane]; c2.fill();
+    c2.fillStyle = "rgba(255,255,255,.55)"; c2.fillRect(x + 8, y - nh / 2 + 4, lw - pad * 2 - 16, 3);
+    c2.globalAlpha = 1;
+  }
+
+  // particles
+  if (P.parts.length) {
+    P.parts = P.parts.filter(p => now - p.t < 420);
+    for (const p of P.parts) {
+      const a = (now - p.t) / 1000;
+      c2.globalAlpha = 1 - a / 0.42; c2.fillStyle = p.c;
+      c2.fillRect(p.x + p.vx * a - 3, p.y + p.vy * a + 500 * a * a - 3, 6, 6);
+    }
+    c2.globalAlpha = 1;
+  }
+
+  // HUD
+  c2.fillStyle = "#322c4d"; c2.fillRect(0, 0, w, 4);
+  c2.fillStyle = "#ff6b4a"; c2.fillRect(0, 0, w * Math.max(0, Math.min(1, t / dur)), 4);
+  c2.textBaseline = "top"; c2.textAlign = "left";
+  c2.fillStyle = "#a29bbd"; c2.font = '600 12px "IBM Plex Sans KR", sans-serif'; c2.fillText("점수", 16, 16);
+  c2.fillStyle = "#f3eefc"; c2.font = '26px "Black Han Sans", sans-serif'; c2.fillText(String(P.score), 16, 32);
+  // gauge (drops on a miss, the song stops at zero) and fever (fills on good hits, then doubles the score)
+  const bw = 96;
+  c2.fillStyle = "#322c4d"; c2.fillRect(16, 66, bw, 6); c2.fillRect(16, 76, bw, 6);
+  c2.fillStyle = P.life < 30 ? "#ff6b4a" : "#3ddc97"; c2.fillRect(16, 66, bw * Math.max(0, P.life) / 100, 6);
+  c2.fillStyle = "#ffc43d"; c2.fillRect(16, 76, bw * (inFever ? (P.feverUntil - t) / FEVER_LEN : P.fever / 100), 6);
+  if (inFever) { c2.fillStyle = "#ffc43d"; c2.font = '18px "Black Han Sans", sans-serif'; c2.fillText("FEVER x2", 16, 88); }
+  c2.textAlign = "center";
+  const cx = w / 2;
+  if (P.combo >= 2) {
+    const pulse = reduceMotion ? 1 : 1 + 0.18 * Math.max(0, 1 - (now - P.judgeAt) / 140);
+    c2.fillStyle = "#f3eefc"; c2.font = Math.round(64 * pulse) + 'px "Black Han Sans", sans-serif';
+    c2.textBaseline = "middle"; c2.fillText(String(P.combo), cx, h * 0.3);
+    c2.font = '600 13px "IBM Plex Sans KR", sans-serif'; c2.fillStyle = "#a29bbd"; c2.fillText("COMBO", cx, h * 0.3 + 46);
+  }
+  const ja = (now - P.judgeAt) / 500;
+  if (ja < 1) {
+    c2.globalAlpha = 1 - ja * ja; c2.fillStyle = P.judgeColor; c2.textBaseline = "middle";
+    c2.font = '28px "Black Han Sans", sans-serif'; c2.fillText(P.judge, cx, h * 0.3 + 84); c2.globalAlpha = 1;
+  }
+  if (t < -0.4 && G.mode !== "yt") {
+    c2.fillStyle = "#f3eefc"; c2.textBaseline = "middle"; c2.font = '44px "Black Han Sans", sans-serif';
+    c2.fillText(String(Math.ceil(-t)), cx, h * 0.52);
+    c2.font = '500 14px "IBM Plex Sans KR", sans-serif'; c2.fillStyle = "#a29bbd";
+    c2.fillText("노트가 선에 닿을 때 그 줄을 누르세요", cx, h * 0.52 + 44);
+  }
+
+  if (t > (G.mode === "yt" ? dur - 0.4 : dur + 0.8)) { finish(); return; }
+  requestAnimationFrame(frame);
+}
+
+function pause() {
+  if (!G.running || G.paused) return;
+  G.paused = true; if (G.clk) G.clk.ok = false;
+  if (G.mode === "yt") ytCall("pauseVideo"); else G.ctx.suspend().catch(() => {});
+  $("pauseOverlay").hidden = false;
+}
+function resume() {
+  if (!G.running || !G.paused) return;
+  $("pauseOverlay").hidden = true;
+  if (G.mode === "yt") { G.paused = false; ytCall("playVideo"); requestAnimationFrame(frame); return; }
+  G.ctx.resume().then(() => { G.paused = false; requestAnimationFrame(frame); }).catch(() => { $("pauseOverlay").hidden = false; });
+}
+function quit(to) {
+  G.running = false; G.paused = false; stopSource();
+  if (G.ctx && G.ctx.state === "suspended") G.ctx.resume().catch(() => {});
+  show(to);
+}
+function finish() {
+  if (!G.running) return;
+  const P = G.play, total = (G.chart.length + G.chart.filter(n => n.end !== undefined).length) || 1;
+  G.running = false; stopSource();
+  const acc = (P.p + P.g * 0.7 + P.o * 0.4) / total * 100;
+  $("resSong").textContent = G.name;
+  let dg = "";
+  if (G.mode !== "yt" && G.ctx) {
+    const k = G.clk, rate = k && k.ok ? ((G.ctx.currentTime - k.c) / ((performance.now() - k.p) / 1000) * 100).toFixed(2) + "%" : "-";
+    dg = "진단 · " + G.ctx.sampleRate + "Hz · 곡 " + G.buffer.sampleRate + "Hz · 지연 " + Math.round(G.lat * 1000) + "ms · 싱크 " + G.offset + "ms · 시계 " + rate + " · " + Math.round(G.bpm) + "BPM";
+  }
+  $("diag").textContent = dg;
+  const clean = !P.failed && P.m === 0;
+  $("resBadge").textContent = P.failed ? "게이지가 바닥나서 중단됐습니다" : clean && P.g === 0 && P.o === 0 ? "ALL PERFECT" : clean ? "FULL COMBO" : "";
+  $("resRank").textContent = P.failed ? "F" : acc >= 95 ? "S" : acc >= 88 ? "A" : acc >= 75 ? "B" : acc >= 60 ? "C" : "D";
+  $("resScore").textContent = P.score.toLocaleString("ko-KR");
+  $("resAcc").textContent = acc.toFixed(1) + "%";
+  $("resCombo").textContent = P.maxCombo;
+  $("resP").textContent = P.p; $("resG").textContent = P.g; $("resO").textContent = P.o; $("resM").textContent = P.m;
+  show("results");
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) pause(); });
+
+/* ---------- wiring ---------- */
+$("linkForm").addEventListener("submit", e => { e.preventDefault(); const u = $("urlInput").value.trim(); if (u) loadFromUrl(u); else homeMsg("노래 링크를 붙여 넣어 주세요."); });
+$("fileBtn").addEventListener("click", () => { ensureCtx(); $("fileInput").click(); });
+$("fileInput").addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) loadFromFile(f); });
+$("demoBtn").addEventListener("click", loadDemo);
+$("startBtn").addEventListener("click", startGame);
+$("backBtn").addEventListener("click", () => show("home"));
+$("tapPad").addEventListener("pointerdown", e => { e.preventDefault(); tempoTap(); });
+$("tapPad").addEventListener("keydown", e => { if (!e.repeat && (e.code === "Space" || e.code === "Enter")) { e.preventDefault(); tempoTap(); } });
+$("tempoOk").addEventListener("click", tempoDone);
+$("calPad").addEventListener("pointerdown", e => { e.preventDefault(); calTap(); });
+$("calPad").addEventListener("keydown", e => { if (!e.repeat && (e.code === "Space" || e.code === "Enter")) { e.preventDefault(); calTap(); } });
+$("calBtn").addEventListener("click", startCalib);
+$("calRetry").addEventListener("click", startCalib);
+$("calSkip").addEventListener("click", () => { stopCalib(); G.calibrated = true; store.set("bd-cal", "1"); show("ready"); });
+$("tempoReset").addEventListener("click", () => { G.taps = []; syncTempoUi(); });
+$("tempoBack").addEventListener("click", () => { leaveYoutube(); show("home"); });
+$("pauseBtn").addEventListener("click", pause);
+$("resumeBtn").addEventListener("click", resume);
+$("restartBtn").addEventListener("click", () => { G.running = false; if (G.ctx) G.ctx.resume().catch(() => {}); startGame(); });
+$("quitBtn").addEventListener("click", () => quit("ready"));
+$("againBtn").addEventListener("click", startGame);
+$("newBtn").addEventListener("click", () => show("home"));
+if (document.fonts && document.fonts.load) { document.fonts.load('26px "Black Han Sans"').catch(() => {}); }
+</script>
+</body>
+</html>
