@@ -107,6 +107,13 @@ h2{font-family:var(--font-display);font-weight:400;font-size:30px;line-height:1.
 .tapPad span{color:var(--muted);font-size:14px}
 .btn:disabled{opacity:.4}
 #tempo .col{padding-top:16px;gap:14px}
+.lib{list-style:none;padding:0;display:flex;flex-direction:column;gap:8px}
+.lib li{display:flex;gap:8px;align-items:stretch}
+.lib .play{flex:1;min-width:0;text-align:left;padding:10px 12px;border-radius:10px;background:var(--ink);border:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+.lib .play b{font-weight:600;overflow-wrap:anywhere}
+.lib .play span{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.lib .del{flex:none;min-width:56px;padding:0 10px;border-radius:10px;border:1px solid var(--line);color:var(--muted);font-size:13px}
+.lib .del.sure{border-color:var(--accent);color:var(--accent)}
 #calib .col{gap:14px}
 #game[hidden]{display:none}
 canvas{display:block;width:100%;height:100%;touch-action:none}
@@ -150,10 +157,16 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 
     <button class="btn ghost wide" type="button" id="demoBtn">데모 곡으로 바로 해보기</button>
 
+    <div class="card" id="libCard" hidden>
+      <p class="label">저장된 노래</p>
+      <ul class="lib" id="libList"></ul>
+    </div>
+
     <div class="hint">
       <ul>
         <li>유튜브 링크는 영상을 틀어 놓고 박자를 몇 번 두드리면 그 빠르기로 노트를 만듭니다.</li>
         <li>mp3 같은 오디오 파일과 mp4 같은 동영상 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
+        <li>한 번 넣은 노래는 이 기기에 저장되어, 다음부터는 저장된 노래 목록에서 바로 고를 수 있습니다.</li>
         <li>긴 노트는 끝까지 누르고 있어야 합니다. 놓치면 게이지가 줄고, 바닥나면 곡이 멈춥니다.</li>
         <li>아이폰은 무음 스위치를 꺼야 소리가 납니다.</li>
         <li>블루투스 이어폰은 소리가 늦게 들려서, 시작 전에 싱크를 맞춰 주세요.</li>
@@ -374,7 +387,7 @@ async function loadFromUrl(url) {
   }
   let name = "링크로 넣은 노래";
   try { name = decodeURIComponent(new URL(url).pathname.split("/").pop()).replace(/\.[a-z0-9]+$/i, "") || name; } catch (e) {}
-  await prepare(ab, name);
+  await prepare(ab, name, false, { blob: new Blob([ab]), size: ab.byteLength, isVideo: false });
 }
 
 async function loadFromFile(file) {
@@ -386,10 +399,10 @@ async function loadFromFile(file) {
   try { ab = await file.arrayBuffer(); }
   catch (e) { show("home"); homeMsg("파일을 읽지 못했습니다. 다시 골라 주세요."); return; }
   if (isVideo) attachVideo(file);
-  await prepare(ab, file.name.replace(/\.[a-z0-9]+$/i, ""), isVideo);
+  await prepare(ab, file.name.replace(/\.[a-z0-9]+$/i, ""), isVideo, { blob: file, size: file.size, isVideo });
 }
 
-async function prepare(ab, name, isVideo) {
+async function prepare(ab, name, isVideo, save, cached) {
   let buf;
   try { progress(0.15, isVideo ? "동영상을 불러오는 중" : "노래를 불러오는 중", "소리를 푸는 중이에요"); buf = await decode(ab); }
   catch (e) {
@@ -397,21 +410,25 @@ async function prepare(ab, name, isVideo) {
     homeMsg(isVideo ? "이 동영상에서 소리를 읽지 못했습니다. 소리가 없는 영상이거나 지원하지 않는 형식입니다. mp4 파일로 다시 해보세요." : "오디오로 열 수 없는 파일입니다. mp3, m4a, wav 파일로 다시 해보세요.");
     return;
   }
-  await useBuffer(buf, name);
+  await useBuffer(buf, name, save, cached);
 }
 
-async function useBuffer(buf, name) {
+// save: { blob, size, isVideo } to store a newly added song; cached: { id, an } when it comes from the saved list
+async function useBuffer(buf, name, save, cached) {
   if (buf.duration < 5) { show("home"); homeMsg("노래가 너무 짧습니다. 5초보다 긴 곡을 넣어 주세요."); return; }
   G.buffer = buf; G.name = name; G.dur = buf.duration;
   progress(0.2, "박자를 찾는 중", "노래를 듣고 노트를 만들고 있어요");
   await tick();
-  const an = await analyze(buf, p => progress(0.2 + 0.8 * p));
+  const reuse = cached && cached.an && cached.anV === AN_VERSION;
+  const an = reuse ? cached.an : await analyze(buf, p => progress(0.2 + 0.8 * p));
   G.onsets = an.onsets; G.beats = an.beats; G.bpm = an.bpm; G.eng = an.eng; G.ft = an.ft;
   buildChart();
   $("readyLabel").textContent = "준비 완료";
   $("songName").textContent = name;
   $("statLen").textContent = fmtTime(buf.duration);
   show("ready");
+  if (cached) { G.songId = cached.id; if (!reuse) dbPut("data", { id: cached.id, blob: cached.blob, an, anV: AN_VERSION }).catch(() => {}); }
+  else if (save) saveFileSong(name, buf.duration, save, an);
 }
 
 /* ---------- demo song (synthesized) ---------- */
@@ -483,9 +500,111 @@ function renderDemo() {
   return oc.startRendering();
 }
 
+/* ---------- saved songs: files and tapped YouTube tempos are kept in this browser (IndexedDB) ---------- */
+const AN_VERSION = 4;   // bump when the analysis output changes so saved songs get re-analyzed
+function dbOpen() {
+  return new Promise((res, rej) => {
+    let r; try { r = indexedDB.open("beatdrop", 1); } catch (e) { rej(e); return; }
+    r.onupgradeneeded = () => { r.result.createObjectStore("meta", { keyPath: "id" }); r.result.createObjectStore("data", { keyPath: "id" }); };
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error("blocked"));
+  });
+}
+async function dbRun(stores, mode, fn) {
+  const db = await dbOpen();
+  return new Promise((res, rej) => {
+    let out;
+    const tx = db.transaction(stores, mode);
+    tx.oncomplete = () => { db.close(); res(out && out.result); };
+    tx.onerror = tx.onabort = () => { db.close(); rej(tx.error || new Error("db")); };
+    out = fn(tx);
+  });
+}
+const dbPut = (store, v) => dbRun([store], "readwrite", tx => tx.objectStore(store).put(v));
+const dbGet = (store, id) => dbRun([store], "readonly", tx => tx.objectStore(store).get(id));
+const dbAll = () => dbRun(["meta"], "readonly", tx => tx.objectStore("meta").getAll());
+const dbDel = id => dbRun(["meta", "data"], "readwrite", tx => { tx.objectStore("meta").delete(id); tx.objectStore("data").delete(id); });
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+
+async function saveFileSong(name, dur, save, an) {
+  try {
+    const all = await dbAll();
+    const same = all.find(m => m.kind === "file" && m.name === name && m.size === save.size);
+    const id = same ? same.id : newId();
+    await dbPut("data", { id, blob: save.blob, an, anV: AN_VERSION });
+    await dbPut("meta", Object.assign(same || { id, kind: "file", added: Date.now() }, { name, dur, size: save.size, isVideo: !!save.isVideo }));
+    G.songId = id;
+    if (!same) $("readyMsg").textContent = "이 기기에 저장했습니다. 다음부터는 첫 화면의 저장된 노래에서 바로 고를 수 있습니다.";
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  } catch (e) {
+    $("readyMsg").textContent = "저장 공간이 부족하거나 막혀 있어서 이 파일은 저장하지 못했습니다. 지금 플레이는 그대로 됩니다.";
+  }
+  renderLibrary();
+}
+async function saveYtSong() {
+  if (G.mode !== "yt" || !G.ytId) return;
+  try {
+    const all = await dbAll();
+    const same = all.find(m => m.kind === "yt" && m.yt && m.yt.ytId === G.ytId);
+    const id = same ? same.id : newId();
+    await dbPut("meta", Object.assign(same || { id, kind: "yt", added: Date.now() }, { name: G.name, dur: G.dur, yt: { ytId: G.ytId, beat: G.beat, anchor: G.anchor, tap0: G.tap0 } }));
+    G.songId = id;
+  } catch (e) {}
+  renderLibrary();
+}
+async function saveBest(score, rank) {
+  if (!G.songId) return;
+  try {
+    const m = await dbGet("meta", G.songId);
+    if (m && (!m.best || score > m.best.score)) { m.best = { score, rank }; await dbPut("meta", m); renderLibrary(); }
+  } catch (e) {}
+}
+async function loadSaved(id) {
+  homeMsg("");
+  let m, d;
+  try { m = await dbGet("meta", id); } catch (e) {}
+  if (!m) { homeMsg("저장된 노래를 찾지 못했습니다."); renderLibrary(); return; }
+  if (m.kind === "yt") { loadYoutube(m.yt.ytId, m); return; }
+  leaveYoutube();
+  show("loading"); progress(0.05, "저장된 노래를 여는 중", "파일을 읽고 있어요");
+  let ab;
+  try { d = await dbGet("data", id); ab = await d.blob.arrayBuffer(); }
+  catch (e) { show("home"); homeMsg("저장된 파일을 읽지 못했습니다. 브라우저가 저장 공간을 비웠을 수 있습니다. 파일을 다시 넣어 주세요."); return; }
+  if (m.isVideo) attachVideo(d.blob);
+  await prepare(ab, m.name, m.isVideo, null, { id, an: d.an, anV: d.anV, blob: d.blob });
+}
+async function renderLibrary() {
+  let all = [];
+  try { all = await dbAll(); } catch (e) {}
+  all.sort((a, b) => b.added - a.added);
+  const ul = $("libList"); ul.innerHTML = "";
+  $("libCard").hidden = !all.length;
+  for (const m of all) {
+    const li = document.createElement("li"), play = document.createElement("button"), del = document.createElement("button");
+    play.type = "button"; play.className = "play";
+    const b = document.createElement("b"), sp = document.createElement("span");
+    b.textContent = m.name;
+    sp.textContent = fmtTime(m.dur || 0) + " · " + (m.kind === "yt" ? "유튜브" : m.isVideo ? "동영상" : "노래 파일") + (m.best ? " · 최고 " + m.best.rank + " " + m.best.score.toLocaleString("ko-KR") : "");
+    play.append(b, sp);
+    play.addEventListener("click", () => { ensureCtx(); loadSaved(m.id); });
+    del.type = "button"; del.className = "del"; del.textContent = "삭제";
+    del.addEventListener("click", async () => {
+      if (!del.classList.contains("sure")) {   // first tap asks, second tap deletes
+        del.classList.add("sure"); del.textContent = "정말 삭제";
+        setTimeout(() => { del.classList.remove("sure"); del.textContent = "삭제"; }, 3000);
+        return;
+      }
+      try { await dbDel(m.id); } catch (e) {}
+      if (G.songId === m.id) G.songId = null;
+      renderLibrary();
+    });
+    li.append(play, del); ul.appendChild(li);
+  }
+}
+
 /* ---------- YouTube: official embedded player + tap tempo ---------- */
 function ytCall(fn, ...a) { try { if (G.yt && G.yt[fn]) return G.yt[fn](...a); } catch (e) {} }
 function leaveYoutube() {
+  G.songId = null;
   if (G.yt) { ytCall("destroy"); G.yt = null; }
   clearVideo();
   $("ytDock").innerHTML = ""; G.mode = "audio";
@@ -527,7 +646,7 @@ function loadYtApi() {
   });
   return ytApi;
 }
-async function loadYoutube(id) {
+async function loadYoutube(id, saved) {
   homeMsg(""); stopSource(); leaveYoutube();
   show("loading"); progress(0.3, "유튜브 영상을 불러오는 중", "잠시만요");
   try { await loadYtApi(); }
@@ -544,7 +663,16 @@ async function loadYoutube(id) {
     videoId: id, width: "100%", height: "100%",
     playerVars: { playsinline: 1, rel: 0, fs: 0, disablekb: 1 },
     events: {
-      onReady: () => { ready = true; clearTimeout(to); progress(1); syncTempoUi(); show("tempo"); },
+      onReady: () => {
+        ready = true; clearTimeout(to); progress(1);
+        if (saved && saved.yt) {   // tempo was tapped before: go straight to the ready screen
+          G.beat = saved.yt.beat; G.anchor = saved.yt.anchor; G.tap0 = saved.yt.tap0; setBar0();
+          G.dur = ytCall("getDuration") || saved.dur; G.name = saved.name; G.songId = saved.id;
+          buildChart();
+          $("readyLabel").textContent = "준비 완료"; $("songName").textContent = G.name; $("statLen").textContent = fmtTime(G.dur);
+          show("ready");
+        } else { syncTempoUi(); show("tempo"); }
+      },
       onError: e => {
         ready = true; clearTimeout(to);
         const blocked = e.data === 101 || e.data === 150;
@@ -624,6 +752,7 @@ function tempoDone() {
   $("songName").textContent = G.name;
   $("statLen").textContent = fmtTime(dur);
   show("ready");
+  saveYtSong();
 }
 function setBar0() { G.bar0 = G.anchor + Math.round((G.tap0 - G.anchor) / G.beat) * G.beat; }
 function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
@@ -898,7 +1027,7 @@ function syncReadyUi() {
   $("bpmRow").hidden = G.mode !== "yt";
   $("bpmOut").textContent = Math.round(60 / G.beat) + " BPM";
 }
-function nudgeBpm(d) { G.beat = 60 / Math.max(60, Math.min(220, Math.round(60 / G.beat) + d)); setBar0(); buildChart(); syncReadyUi(); }
+function nudgeBpm(d) { G.beat = 60 / Math.max(60, Math.min(220, Math.round(60 / G.beat) + d)); setBar0(); buildChart(); syncReadyUi(); saveYtSong(); }
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 function nudgeSpeed(d) { G.speed = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, SPEEDS.indexOf(G.speed) + d))]; store.set("bd-speed", String(G.speed)); syncReadyUi(); }
 $("spdMinus").addEventListener("click", () => nudgeSpeed(-1));
@@ -1229,6 +1358,10 @@ function frame() {
     c2.globalAlpha = 1 - ja * ja; c2.fillStyle = P.judgeColor; c2.textBaseline = "middle";
     c2.font = '28px "Black Han Sans", sans-serif'; c2.fillText(P.judge, cx, h * 0.3 + 84); c2.globalAlpha = 1;
   }
+  if (G.mode === "yt" && t < 0.3 && ytCall("getPlayerState") !== 1 && now - G.startedAt > 1500) {
+    c2.fillStyle = "#f3eefc"; c2.textBaseline = "middle"; c2.font = '600 16px "IBM Plex Sans KR", sans-serif';
+    c2.fillText("위 영상의 재생 버튼을 눌러 주세요", cx, h * 0.52);
+  }
   if (t < -0.4 && G.mode !== "yt") {
     c2.fillStyle = "#f3eefc"; c2.textBaseline = "middle"; c2.font = '44px "Black Han Sans", sans-serif';
     c2.fillText(String(Math.ceil(-t)), cx, h * 0.52);
@@ -1274,6 +1407,7 @@ function finish() {
   $("resBadge").textContent = P.failed ? "게이지가 바닥나서 중단됐습니다" : clean && P.g === 0 && P.o === 0 ? "ALL PERFECT" : clean ? "FULL COMBO" : "";
   $("resRank").textContent = P.failed ? "F" : acc >= 95 ? "S" : acc >= 88 ? "A" : acc >= 75 ? "B" : acc >= 60 ? "C" : "D";
   $("resScore").textContent = P.score.toLocaleString("ko-KR");
+  if (!P.failed) saveBest(P.score, $("resRank").textContent);
   $("resAcc").textContent = acc.toFixed(1) + "%";
   $("resCombo").textContent = P.maxCombo;
   $("resP").textContent = P.p; $("resG").textContent = P.g; $("resO").textContent = P.o; $("resM").textContent = P.m;
@@ -1304,6 +1438,7 @@ $("restartBtn").addEventListener("click", () => { G.running = false; if (G.ctx) 
 $("quitBtn").addEventListener("click", () => quit("ready"));
 $("againBtn").addEventListener("click", startGame);
 $("newBtn").addEventListener("click", () => show("home"));
+renderLibrary();
 if (document.fonts && document.fonts.load) { document.fonts.load('26px "Black Han Sans"').catch(() => {}); }
 </script>
 </body>
