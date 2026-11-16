@@ -1,0 +1,42 @@
+name: 유튜브 노래 분석
+
+# Actions 탭에서 "Run workflow"를 누르고 유튜브 링크를 넣으면,
+# 음원을 분석해서 charts/<영상 ID>.json 을 저장소에 추가합니다. 음원 파일은 남기지 않습니다.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 유튜브 링크
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency: chart
+
+jobs:
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install yt-dlp and ffmpeg
+        run: |
+          python3 -m pip install --quiet --upgrade yt-dlp
+          ffmpeg -version | head -1 || (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg)
+      - name: Analyze
+        env:
+          SONG_URL: ${{ inputs.url }}
+        run: node tools/yt-chart.mjs "$SONG_URL"
+      - name: Commit the analysis
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add charts
+          git diff --cached --quiet && { echo "변경 없음"; exit 0; }
+          git commit -m "Add song analysis"
+          git pull --rebase
+          git push

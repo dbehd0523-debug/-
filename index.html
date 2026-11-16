@@ -166,7 +166,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 
     <div class="hint">
       <ul>
-        <li>유튜브 링크는 영상을 틀어 놓고 박자를 몇 번 두드리면 그 빠르기로 노트를 만듭니다.</li>
+        <li>유튜브 링크는 미리 분석해 둔 곡이면 소리에 맞는 노트가 나오고, 아니면 박자를 몇 번 두드려서 그 빠르기로 노트를 만듭니다.</li>
         <li>mp3 같은 오디오 파일과 mp4 같은 동영상 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
         <li>한 번 넣은 노래는 이 기기에 저장되어, 다음부터는 저장된 노래 목록에서 바로 고를 수 있습니다.</li>
         <li>긴 노트는 끝까지 누르고 있어야 합니다. 놓치면 게이지가 줄고, 바닥나면 곡이 멈춥니다.</li>
@@ -548,7 +548,7 @@ async function saveYtSong() {
     const all = await dbAll();
     const same = all.find(m => m.kind === "yt" && m.yt && m.yt.ytId === G.ytId);
     const id = same ? same.id : newId();
-    await dbPut("meta", Object.assign(same || { id, kind: "yt", added: Date.now() }, { name: G.name, dur: G.dur, yt: { ytId: G.ytId, beat: G.beat, anchor: G.anchor, tap0: G.tap0 } }));
+    await dbPut("meta", Object.assign(same || { id, kind: "yt", added: Date.now() }, { name: G.name, dur: G.dur, yt: G.ytAn ? { ytId: G.ytId, analyzed: true } : { ytId: G.ytId, beat: G.beat, anchor: G.anchor, tap0: G.tap0 } }));
     G.songId = id;
   } catch (e) {}
   renderLibrary();
@@ -606,7 +606,7 @@ async function renderLibrary() {
 /* ---------- YouTube: official embedded player + tap tempo ---------- */
 function ytCall(fn, ...a) { try { if (G.yt && G.yt[fn]) return G.yt[fn](...a); } catch (e) {} }
 function leaveYoutube() {
-  G.songId = null;
+  G.songId = null; G.ytAn = false;
   if (G.yt) { ytCall("destroy"); G.yt = null; }
   clearVideo();
   $("ytDock").innerHTML = ""; G.mode = "audio";
@@ -657,7 +657,18 @@ async function loadYoutube(id, saved) {
     homeMsg("지금 보고 있는 화면에서는 유튜브 영상을 열 수 없습니다. 이 게임을 일반 웹 주소에 올린 버전에서 열어 주세요.");
     return;
   }
+  // a song analyzed ahead of time (tools/yt-chart.mjs) has charts/<id>.json next to this page: notes then follow the sound
+  let pre = null;
+  try {
+    const r = await fetch("charts/" + id + ".json", { cache: "no-cache" });
+    if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.onsets) && j.onsets.length) pre = j; }
+  } catch (e) {}
   G.mode = "yt"; G.ytId = id; G.taps = []; YC.playing = false;
+  if (pre) {
+    G.ytAn = true;
+    G.onsets = pre.onsets.map(o => ({ t: o[0], s: o[1], v: o[2], c: o[3], g: o[4], bi: o[5] }));
+    G.beats = pre.beats || []; G.bpm = pre.bpm || 120; G.eng = Float32Array.from(pre.eng || []); G.ft = pre.ft;
+  }
   $("ytDock").innerHTML = '<div id="ytHost"></div>';
   let ready = false;
   const to = setTimeout(() => { if (!ready) { leaveYoutube(); show("home"); homeMsg("영상을 불러오지 못했습니다. 링크를 확인하고 다시 해보세요."); } }, 15000);
@@ -667,7 +678,14 @@ async function loadYoutube(id, saved) {
     events: {
       onReady: () => {
         ready = true; clearTimeout(to); progress(1);
-        if (saved && saved.yt) {   // tempo was tapped before: go straight to the ready screen
+        if (pre) {
+          G.dur = ytCall("getDuration") || pre.dur;
+          const vd = ytCall("getVideoData");
+          G.name = (saved && saved.name) || pre.title || (vd && vd.title) || "유튜브 노래";
+          buildChart();
+          $("readyLabel").textContent = "준비 완료 · 소리 분석됨"; $("songName").textContent = G.name; $("statLen").textContent = fmtTime(G.dur);
+          show("ready"); saveYtSong();
+        } else if (saved && saved.yt && saved.yt.beat) {   // tempo was tapped before: go straight to the ready screen
           G.beat = saved.yt.beat; G.anchor = saved.yt.anchor; G.tap0 = saved.yt.tap0; setBar0();
           G.dur = ytCall("getDuration") || saved.dur; G.name = saved.name; G.songId = saved.id;
           buildChart();
@@ -954,7 +972,7 @@ async function analyze(buffer, onProgress) {
 
 /* ---------- chart: pick notes for the difficulty and place them in lanes ---------- */
 function buildChart() {
-  if (G.mode === "yt") { buildGridChart(); return; }
+  if (G.mode === "yt" && !G.ytAn) { buildGridChart(); return; }
   const d = DIFFS[G.diff], dur = G.dur;
   // every 4 bars, whichever part is carrying the music there (low: drums and bass, high: melody) gets priority
   const allC = G.onsets.map(o => o.c).sort((a, b) => a - b), medC = allC.length ? allC[allC.length >> 1] : 0;
@@ -1022,11 +1040,11 @@ function buildChart() {
 /* ---------- ready screen ---------- */
 function syncReadyUi() {
   document.querySelectorAll("#diffSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.d === G.diff)));
-  const off = G.mode === "yt" ? G.ytOffset : G.offset;
+  const tapped = G.mode === "yt" && !G.ytAn, off = tapped ? G.ytOffset : G.offset;
   $("offOut").textContent = (off > 0 ? "+" : "") + off + " ms";
-  $("calBtn").hidden = G.mode === "yt";
+  $("calBtn").hidden = tapped;
   $("spdOut").textContent = G.speed.toFixed(2).replace(/0$/, "") + "x";
-  $("bpmRow").hidden = G.mode !== "yt";
+  $("bpmRow").hidden = !tapped;
   $("bpmOut").textContent = Math.round(60 / G.beat) + " BPM";
 }
 function nudgeBpm(d) { G.beat = 60 / Math.max(60, Math.min(220, Math.round(60 / G.beat) + d)); setBar0(); buildChart(); syncReadyUi(); saveYtSong(); }
@@ -1042,7 +1060,7 @@ $("diffSeg").addEventListener("click", e => {
 });
 function nudge(d) {
   $("readyMsg").textContent = "";
-  if (G.mode === "yt") { G.ytOffset = Math.max(-500, Math.min(500, G.ytOffset + d)); store.set("bd-offset-yt", String(G.ytOffset)); }
+  if (G.mode === "yt" && !G.ytAn) { G.ytOffset = Math.max(-500, Math.min(500, G.ytOffset + d)); store.set("bd-offset-yt", String(G.ytOffset)); }
   else { G.offset = Math.max(-500, Math.min(500, G.offset + d)); store.set("bd-offset", String(G.offset)); }
   syncReadyUi();
 }
@@ -1080,7 +1098,7 @@ function ctxNow() {
 }
 function reportedLatency() { const l = G.ctx.outputLatency || G.ctx.baseLatency || 0; return l > 0 && l < 0.5 ? l : 0; }
 function songTime() {
-  if (G.mode === "yt") return ytClock() - G.ytOffset / 1000;
+  if (G.mode === "yt") return ytClock() - (G.ytAn ? G.offset : G.ytOffset) / 1000;
   return ctxNow() - G.startAt - G.lat - G.offset / 1000;
 }
 
@@ -1130,7 +1148,7 @@ function endCalib() {
 
 function startGame() {
   ensureCtx();
-  if (!G.calibrated && G.mode !== "yt") { startCalib(); return; }
+  if (!G.calibrated && !(G.mode === "yt" && !G.ytAn)) { startCalib(); return; }
   $("readyMsg").textContent = ""; G.lat = reportedLatency(); AK.last = -1;
   stopSource();
   G.chart.forEach(n => { n.state = 0; });
