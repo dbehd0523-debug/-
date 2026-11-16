@@ -166,7 +166,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 
     <div class="hint">
       <ul>
-        <li>유튜브 링크는 미리 분석해 둔 곡이면 소리에 맞는 노트가 나오고, 아니면 박자를 몇 번 두드려서 그 빠르기로 노트를 만듭니다.</li>
+        <li>유튜브 링크는 스피커로 한 번 틀어서 마이크로 듣고 소리에 맞는 노트를 만들거나, 박자를 몇 번 두드려서 그 빠르기로 노트를 만듭니다.</li>
         <li>mp3 같은 오디오 파일과 mp4 같은 동영상 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
         <li>한 번 넣은 노래는 이 기기에 저장되어, 다음부터는 저장된 노래 목록에서 바로 고를 수 있습니다.</li>
         <li>긴 노트는 끝까지 누르고 있어야 합니다. 놓치면 게이지가 줄고, 바닥나면 곡이 멈춥니다.</li>
@@ -189,6 +189,10 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <!-- TEMPO (YouTube) -->
 <section class="screen" id="tempo" hidden>
   <div class="col">
+    <button class="btn wide" type="button" id="listenBtn">소리를 듣고 자동으로 노트 만들기</button>
+    <p class="hint">이어폰을 빼고 스피커로 재생하면, 마이크로 노래를 한 번 끝까지 듣고 소리에 맞는 노트를 만듭니다. 2배속으로 들어서 곡 길이의 절반쯤 걸립니다.</p>
+    <p class="msg" id="tempoMsg" role="status"></p>
+    <div class="or">또는 박자를 직접 두드리기</div>
     <p class="hint" id="tempoHelp">위 영상의 재생 버튼을 누른 다음, 노래 박자에 맞춰 아래를 16번 이상 두드리세요. 노래의 한 소절이 시작되는 박에서 두드리기 시작하면 노트가 더 잘 맞습니다.</p>
     <button class="tapPad" type="button" id="tapPad">
       <b id="tapCount">0 / 16</b>
@@ -199,6 +203,25 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
       <button class="btn ghost" type="button" id="tempoReset" style="flex:1">다시 두드리기</button>
       <button class="btn ghost" type="button" id="tempoBack" style="flex:1">다른 노래</button>
     </div>
+  </div>
+</section>
+
+<!-- LISTEN (YouTube through the microphone) -->
+<section class="screen" id="listen" hidden>
+  <div class="col">
+    <h2>노래를 듣는 중</h2>
+    <p class="hint">스피커에서 나오는 소리를 마이크로 듣고 있습니다. 끝날 때까지 조용한 곳에 휴대폰을 그대로 두세요.</p>
+    <div>
+      <p class="label" style="margin-bottom:8px">들은 분량 <span id="lsInfo">0:00 / 0:00</span></p>
+      <div class="progress"><b id="lsBar"></b></div>
+    </div>
+    <div>
+      <p class="label" style="margin-bottom:8px">마이크에 들어오는 소리</p>
+      <div class="progress"><b id="lsLevel"></b></div>
+    </div>
+    <p class="msg" id="lsMsg" role="status"></p>
+    <button class="btn wide" type="button" id="lsDone">여기까지만 듣고 노트 만들기</button>
+    <button class="btn ghost wide" type="button" id="lsCancel">취소</button>
   </div>
 </section>
 
@@ -334,12 +357,12 @@ const G = {
 };
 
 /* ---------- screens ---------- */
-const SCREENS = ["home", "loading", "tempo", "calib", "ready", "game", "results"];
+const SCREENS = ["home", "loading", "tempo", "listen", "calib", "ready", "game", "results"];
 function show(id) {
   SCREENS.forEach(s => { $(s).hidden = s !== id; });
   if (id === "ready") syncReadyUi();
-  $("ytDock").hidden = !((G.mode === "yt" && (id === "tempo" || id === "game")) || (G.videoEl && id === "game"));
-  if (G.mode === "yt" && id !== "tempo" && id !== "game" && id !== "loading") ytCall("pauseVideo");
+  $("ytDock").hidden = !((G.mode === "yt" && (id === "tempo" || id === "game" || id === "listen")) || (G.videoEl && id === "game"));
+  if (G.mode === "yt" && id !== "tempo" && id !== "game" && id !== "listen" && id !== "loading") ytCall("pauseVideo");
 }
 function homeMsg(t) { $("homeMsg").textContent = t || ""; }
 function progress(p, title, sub) {
@@ -565,7 +588,11 @@ async function loadSaved(id) {
   let m, d;
   try { m = await dbGet("meta", id); } catch (e) {}
   if (!m) { homeMsg("저장된 노래를 찾지 못했습니다."); renderLibrary(); return; }
-  if (m.kind === "yt") { loadYoutube(m.yt.ytId, m); return; }
+  if (m.kind === "yt") {
+    let an = null;
+    try { const yd = await dbGet("data", id); if (yd && yd.anV === AN_VERSION) an = yd.an; } catch (e) {}
+    loadYoutube(m.yt.ytId, m, an); return;
+  }
   leaveYoutube();
   show("loading"); progress(0.05, "저장된 노래를 여는 중", "파일을 읽고 있어요");
   let ab;
@@ -606,6 +633,7 @@ async function renderLibrary() {
 /* ---------- YouTube: official embedded player + tap tempo ---------- */
 function ytCall(fn, ...a) { try { if (G.yt && G.yt[fn]) return G.yt[fn](...a); } catch (e) {} }
 function leaveYoutube() {
+  if (LS.on) stopListenAudio();
   G.songId = null; G.ytAn = false;
   if (G.yt) { ytCall("destroy"); G.yt = null; }
   clearVideo();
@@ -648,7 +676,11 @@ function loadYtApi() {
   });
   return ytApi;
 }
-async function loadYoutube(id, saved) {
+function applyYtAn(an) {
+  G.ytAn = true;
+  G.onsets = an.onsets; G.beats = an.beats || []; G.bpm = an.bpm || 120; G.eng = an.eng; G.ft = an.ft;
+}
+async function loadYoutube(id, saved, savedAn) {
   homeMsg(""); stopSource(); leaveYoutube();
   show("loading"); progress(0.3, "유튜브 영상을 불러오는 중", "잠시만요");
   try { await loadYtApi(); }
@@ -664,11 +696,8 @@ async function loadYoutube(id, saved) {
     if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.onsets) && j.onsets.length) pre = j; }
   } catch (e) {}
   G.mode = "yt"; G.ytId = id; G.taps = []; YC.playing = false;
-  if (pre) {
-    G.ytAn = true;
-    G.onsets = pre.onsets.map(o => ({ t: o[0], s: o[1], v: o[2], c: o[3], g: o[4], bi: o[5] }));
-    G.beats = pre.beats || []; G.bpm = pre.bpm || 120; G.eng = Float32Array.from(pre.eng || []); G.ft = pre.ft;
-  }
+  if (pre) applyYtAn({ onsets: pre.onsets.map(o => ({ t: o[0], s: o[1], v: o[2], c: o[3], g: o[4], bi: o[5] })), beats: pre.beats, bpm: pre.bpm, eng: Float32Array.from(pre.eng || []), ft: pre.ft });
+  else if (savedAn && savedAn.onsets) { applyYtAn(savedAn); pre = { dur: saved.dur, title: saved.name }; }
   $("ytDock").innerHTML = '<div id="ytHost"></div>';
   let ready = false;
   const to = setTimeout(() => { if (!ready) { leaveYoutube(); show("home"); homeMsg("영상을 불러오지 못했습니다. 링크를 확인하고 다시 해보세요."); } }, 15000);
@@ -708,12 +737,14 @@ async function loadYoutube(id, saved) {
   });
 }
 // getCurrentTime() only updates a few times a second, so run a local clock and steer it toward the player's
-const YC = { playing: false, anchorT: 0, anchorNow: 0, last: -1 };
+const YC = { playing: false, anchorT: 0, anchorNow: 0, last: -1, rate: 1 };
 function ytClock() {
   const now = performance.now(), cur = ytCall("getCurrentTime") || 0;
   if (ytCall("getPlayerState") !== 1) { YC.playing = false; YC.last = cur; return cur; }
-  if (!YC.playing) { YC.playing = true; YC.anchorT = cur; YC.anchorNow = now; YC.last = cur; }
-  let est = YC.anchorT + (now - YC.anchorNow) / 1000;
+  const rate = ytCall("getPlaybackRate") || 1;
+  if (!YC.playing) { YC.playing = true; YC.anchorT = cur; YC.anchorNow = now; YC.last = cur; YC.rate = rate; }
+  if (rate !== YC.rate) { YC.anchorT += (now - YC.anchorNow) / 1000 * YC.rate; YC.anchorNow = now; YC.rate = rate; }
+  let est = YC.anchorT + (now - YC.anchorNow) / 1000 * YC.rate;
   if (cur !== YC.last) {
     YC.last = cur;
     const err = cur - est;
@@ -840,6 +871,110 @@ function buildGridChart() {
   $("statNotes").textContent = notes.length;
 }
 let this_sec = null;
+
+/* ---------- YouTube through the microphone: the page cannot read the player's sound, but it can hear it ---------- */
+// The video plays on the speaker at 2x while the microphone records; every recorded block is stamped with the
+// video time, so the recording can be laid out on the video's own timeline and analyzed like a file.
+const LS = { on: false, stream: null, src: null, node: null, mute: null, chunks: [], n: 0, marks: [], sr: 0, dec: 1, level: 0, timer: 0, quietSince: 0, heard: 0 };
+const MIC_DELAY = 0.1;   // speaker-to-microphone path: the recording runs about this far behind the video
+function stopListenAudio() {
+  LS.on = false; clearInterval(LS.timer);
+  try { if (LS.node) { LS.node.onaudioprocess = null; LS.node.disconnect(); } if (LS.src) LS.src.disconnect(); if (LS.mute) LS.mute.disconnect(); } catch (e) {}
+  try { if (LS.stream) LS.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  LS.stream = LS.src = LS.node = LS.mute = null;
+  ytCall("pauseVideo"); ytCall("setPlaybackRate", 1);
+}
+async function startListen() {
+  $("tempoMsg").textContent = "";
+  ensureCtx();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { $("tempoMsg").textContent = "이 화면에서는 마이크를 쓸 수 없습니다. 아래에서 박자를 두드려 주세요."; return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } }); }
+  catch (e) { $("tempoMsg").textContent = "마이크를 쓸 수 없습니다. 마이크 사용을 허용하거나, 아래에서 박자를 두드려 주세요."; return; }
+  try { if (G.ctx.state !== "running") await G.ctx.resume(); } catch (e) {}
+  LS.stream = stream; LS.chunks = []; LS.n = 0; LS.marks = []; LS.level = 0; LS.heard = 0;
+  LS.sr = G.ctx.sampleRate; LS.dec = LS.sr >= 32000 ? 2 : 1;
+  LS.src = G.ctx.createMediaStreamSource(stream);
+  LS.node = G.ctx.createScriptProcessor(4096, 1, 1);
+  LS.mute = G.ctx.createGain(); LS.mute.gain.value = 0;
+  LS.node.onaudioprocess = e => {
+    if (!LS.on) return;
+    const d = e.inputBuffer.getChannelData(0), dec = LS.dec, out = new Float32Array(Math.floor(d.length / dec));
+    let pk = 0;
+    for (let i = 0; i < out.length; i++) { const x = dec === 2 ? (d[2 * i] + d[2 * i + 1]) * 0.5 : d[i]; out[i] = x; const a = x < 0 ? -x : x; if (a > pk) pk = a; }
+    LS.chunks.push(out); LS.n += out.length; LS.level = Math.max(pk, LS.level * 0.8);
+    if (ytCall("getPlayerState") === 1) LS.marks.push([LS.n, ytClock()]);   // sample count at the end of this block <-> video time
+  };
+  LS.src.connect(LS.node); LS.node.connect(LS.mute); LS.mute.connect(G.ctx.destination);
+  LS.on = true; LS.quietSince = performance.now();
+  show("listen"); $("lsMsg").textContent = "";
+  YC.playing = false;
+  ytCall("seekTo", 0, true); ytCall("playVideo"); ytCall("setPlaybackRate", 2);
+  LS.timer = setInterval(() => {
+    const st = ytCall("getPlayerState"), dur = ytCall("getDuration") || 0, vt = ytClock(), now = performance.now();
+    if (st === 1) { if ((ytCall("getPlaybackRate") || 1) < 2) ytCall("setPlaybackRate", 2); LS.heard = Math.max(LS.heard, vt); }
+    $("lsBar").style.width = (dur ? Math.min(100, LS.heard / dur * 100) : 0) + "%";
+    $("lsInfo").textContent = fmtTime(LS.heard) + " / " + fmtTime(dur);
+    $("lsLevel").style.width = Math.min(100, Math.round(Math.sqrt(LS.level) * 140)) + "%";
+    if (LS.level > 0.01 || st !== 1) LS.quietSince = now;
+    $("lsMsg").textContent = st !== 1 && st !== 0 && st !== 3 ? "위 영상의 재생 버튼을 눌러 주세요."
+      : now - LS.quietSince > 4000 ? "소리가 거의 안 들립니다. 이어폰을 빼고 휴대폰 볼륨을 올려 주세요." : "";
+    if (st === 0 || (dur && LS.heard >= dur - 0.6)) finishListen(false);
+  }, 200);
+}
+// lay the recording out on the video timeline: straight-line fit per uninterrupted stretch of playback
+function alignRecording(dur) {
+  const rec = new Float32Array(LS.n); let o = 0;
+  for (const c of LS.chunks) { rec.set(c, o); o += c.length; }
+  const OUT = 22050, out = new Float32Array(Math.ceil(dur * OUT)), marks = LS.marks, rsr = LS.sr / LS.dec;
+  let covered = 0, i0 = 0;
+  const flush = i1 => {   // marks[i0..i1)
+    const n = i1 - i0; if (n < 4) return;
+    let sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let k = i0; k < i1; k++) { const x = marks[k][0] - marks[i0][0], y = marks[k][1]; sx += x; sy += y; sxx += x * x; sxy += x * y; }
+    const b = (n * sxy - sx * sy) / (n * sxx - sx * sx); if (!(b > 0)) return;
+    const a = (sy - b * sx) / n - MIC_DELAY, s0 = marks[i0][0];
+    const v0 = Math.max(0, marks[i0][1]), v1 = Math.min(dur, marks[i1 - 1][1]);
+    for (let j = Math.ceil(v0 * OUT), je = Math.floor(v1 * OUT); j < je; j++) {
+      const sp = s0 + (j / OUT - a) / b, f = Math.floor(sp);
+      if (f < 0 || f + 1 >= rec.length) continue;
+      out[j] = rec[f] + (rec[f + 1] - rec[f]) * (sp - f);
+    }
+    covered += Math.max(0, v1 - v0);
+  };
+  for (let k = 1; k < marks.length; k++) {
+    const dv = marks[k][1] - marks[k - 1][1], ds = (marks[k][0] - marks[k - 1][0]) / rsr;
+    // a stall, an ad or a seek shows up as video time not moving in step with the recording (rate is 1x or 2x)
+    if (dv < ds * 0.5 || dv > ds * 3) { flush(k); i0 = k; }
+  }
+  flush(marks.length);
+  return { out, sr: OUT, covered };
+}
+async function finishListen(cancel) {
+  if (!LS.on) return;
+  const dur = ytCall("getDuration") || 0;
+  stopListenAudio();
+  if (cancel) { LS.chunks = []; show("tempo"); return; }
+  show("loading"); progress(0.1, "박자를 찾는 중", "들은 소리로 노트를 만들고 있어요");
+  await tick();
+  const al = alignRecording(dur || LS.heard);
+  LS.chunks = [];
+  if (al.covered < 15) { show("tempo"); $("tempoMsg").textContent = "들은 분량이 너무 짧습니다. 15초 이상 들어야 노트를 만들 수 있습니다."; return; }
+  let pk = 0; for (let i = 0; i < al.out.length; i += 7) { const a = Math.abs(al.out[i]); if (a > pk) pk = a; }
+  if (pk < 0.004) { show("tempo"); $("tempoMsg").textContent = "마이크에 소리가 거의 들어오지 않았습니다. 이어폰을 빼고 스피커로 다시 해 주세요."; return; }
+  const buffer = { sampleRate: al.sr, length: al.out.length, numberOfChannels: 1, duration: al.out.length / al.sr, getChannelData: () => al.out };
+  const an = await analyze(buffer, p => progress(0.1 + 0.9 * p));
+  if (an.onsets.length < 10) { show("tempo"); $("tempoMsg").textContent = "소리에서 박자를 찾지 못했습니다. 볼륨을 올리고 조용한 곳에서 다시 해 주세요."; return; }
+  applyYtAn(an);
+  G.dur = dur || LS.heard;
+  const vd = ytCall("getVideoData"); G.name = (vd && vd.title) || "유튜브 노래";
+  buildChart();
+  $("readyLabel").textContent = "준비 완료 · 소리 분석됨"; $("songName").textContent = G.name; $("statLen").textContent = fmtTime(G.dur);
+  show("ready");
+  await saveYtSong();
+  if (G.songId) dbPut("data", { id: G.songId, an: { onsets: an.onsets, beats: an.beats, bpm: an.bpm, eng: an.eng, ft: an.ft }, anV: AN_VERSION }).catch(() => {});
+  $("readyMsg").textContent = "들은 소리로 노트를 만들어 저장했습니다. 플레이할 때는 이어폰을 써도 됩니다.";
+}
 
 /* ---------- beat analysis: spectral flux onset detection ---------- */
 function fft(re, im) {
@@ -1166,7 +1301,7 @@ function startGame() {
   G.startedAt = performance.now();
   if (G.mode === "yt") {
     YC.playing = false;
-    ytCall("seekTo", 0, true); ytCall("playVideo");
+    ytCall("setPlaybackRate", 1); ytCall("seekTo", 0, true); ytCall("playVideo");
   } else {
     const src = G.ctx.createBufferSource();
     src.buffer = G.buffer; src.connect(G.ctx.destination);
@@ -1445,13 +1580,16 @@ $("backBtn").addEventListener("click", () => show("home"));
 $("tapPad").addEventListener("pointerdown", e => { e.preventDefault(); tempoTap(); });
 $("tapPad").addEventListener("keydown", e => { if (!e.repeat && (e.code === "Space" || e.code === "Enter")) { e.preventDefault(); tempoTap(); } });
 $("tempoOk").addEventListener("click", tempoDone);
+$("listenBtn").addEventListener("click", startListen);
+$("lsDone").addEventListener("click", () => finishListen(false));
+$("lsCancel").addEventListener("click", () => finishListen(true));
 $("calPad").addEventListener("pointerdown", e => { e.preventDefault(); calTap(); });
 $("calPad").addEventListener("keydown", e => { if (!e.repeat && (e.code === "Space" || e.code === "Enter")) { e.preventDefault(); calTap(); } });
 $("calBtn").addEventListener("click", startCalib);
 $("calRetry").addEventListener("click", startCalib);
 $("calSkip").addEventListener("click", () => { stopCalib(); G.calibrated = true; store.set("bd-cal", "1"); show("ready"); });
 $("tempoReset").addEventListener("click", () => { G.taps = []; syncTempoUi(); });
-$("tempoBack").addEventListener("click", () => { leaveYoutube(); show("home"); });
+$("tempoBack").addEventListener("click", () => { $("tempoMsg").textContent = ""; leaveYoutube(); show("home"); });
 $("pauseBtn").addEventListener("click", pause);
 $("resumeBtn").addEventListener("click", resume);
 $("restartBtn").addEventListener("click", () => { G.running = false; if (G.ctx) G.ctx.resume().catch(() => {}); startGame(); });
