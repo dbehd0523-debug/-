@@ -78,7 +78,7 @@ try {
   const out = {
     v: version, id, title: title || id, dur: r3(buffer.duration), bpm: r3(an.bpm), ft: an.ft,
     beats: an.beats.map(r3),
-    onsets: an.onsets.map(o => [r3(o.t), r3(o.s), r3(o.v), r3(o.c), o.g, o.bi]),   // t, s, v, c, g, bi
+    onsets: an.onsets.map(o => [r3(o.t), r3(o.s), r3(o.v), r3(o.c), o.g, o.bi, o.qx]),   // t, s, v, c, g, bi, qx
     eng: Array.from(an.eng, x => Number(x.toPrecision(3)))
   };
   mkdirSync(join(root, "charts"), { recursive: true });

@@ -331,10 +331,12 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 const $ = id => document.getElementById(id);
 const LANES = ["#ff6b4a", "#ffc43d", "#3ddc97", "#4cc3ff"];
 const DIFFS = {
-  // w: how much a note on the beat / half beat / quarter beat / off the grid is preferred
-  easy:   { minGap: 0.4,  nps: 2.2, doubles: 0,    w: [5, 1, 0.3, 0.2] },
-  normal: { minGap: 0.22, nps: 3.2, doubles: 0.06, w: [3.5, 2, 0.7, 0.5] },
-  hard:   { minGap: 0.12, nps: 5.5, doubles: 0.12, w: [2.2, 1.8, 1.3, 1] }
+  // w: how much a note on the beat / half beat / quarter beat / off the grid is preferred.
+  // Hand-made charts sit almost entirely on beats and half beats in equal measure, so those two weigh the same.
+  // nps is the average over the song; a hand-made top-difficulty chart measured about 2.5 notes a second
+  easy:   { minGap: 0.4,  nps: 1.5, chords: 0,    w: [5, 1.2, 0.2, 0.2] },
+  normal: { minGap: 0.2,  nps: 2.4, chords: 0.12, w: [3, 3, 0.5, 0.4] },
+  hard:   { minGap: 0.12, nps: 3.6, chords: 0.18, w: [2.5, 2.5, 1.3, 0.8] }
 };
 const WIN = { perfect: 0.05, great: 0.1, good: 0.16 };
 const APPROACH = 1.25, LEAD_IN = 2.5, FEVER_LEN = 8;
@@ -526,7 +528,7 @@ function renderDemo() {
 }
 
 /* ---------- saved songs: files and tapped YouTube tempos are kept in this browser (IndexedDB) ---------- */
-const AN_VERSION = 4;   // bump when the analysis output changes so saved songs get re-analyzed
+const AN_VERSION = 5;   // bump when the analysis output changes so saved songs get re-analyzed
 function dbOpen() {
   return new Promise((res, rej) => {
     let r; try { r = indexedDB.open("beatdrop", 1); } catch (e) { rej(e); return; }
@@ -696,7 +698,7 @@ async function loadYoutube(id, saved, savedAn) {
     if (r.ok) { const j = await r.json(); if (j && Array.isArray(j.onsets) && j.onsets.length) pre = j; }
   } catch (e) {}
   G.mode = "yt"; G.ytId = id; G.taps = []; YC.playing = false;
-  if (pre) applyYtAn({ onsets: pre.onsets.map(o => ({ t: o[0], s: o[1], v: o[2], c: o[3], g: o[4], bi: o[5] })), beats: pre.beats, bpm: pre.bpm, eng: Float32Array.from(pre.eng || []), ft: pre.ft });
+  if (pre) applyYtAn({ onsets: pre.onsets.map(o => ({ t: o[0], s: o[1], v: o[2], c: o[3], g: o[4], bi: o[5], qx: o.length > 6 ? o[6] : -1 })), beats: pre.beats, bpm: pre.bpm, eng: Float32Array.from(pre.eng || []), ft: pre.ft });
   else if (savedAn && savedAn.onsets) { applyYtAn(savedAn); pre = { dur: saved.dur, title: saved.name }; }
   $("ytDock").innerHTML = '<div id="ytHost"></div>';
   let ready = false;
@@ -813,25 +815,27 @@ function rng(a) { return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^
 // x = tap, L = long note (6 steps), 16 steps per bar
 const PATTERNS = {
   easy: {
-    calm: ["L.......L.......", "x.......x.......", "L.......x...x..."],
-    mid:  ["x...x...x...x...", "x...x...x.x.x...", "x...x.x.....x..."],
-    high: ["x...x...x.x.x...", "x.x.x...x...x...", "x...x.x.x...x.x."],
-    fill: ["x...x...x.x.x.x.", "x.x.x...x.x.x..."], dbl: false
+    calm: ["L.......L.......", "x.......x.......", "x...x...L......."],
+    mid:  ["x...x...x...x...", "x...x.x...x.....", "x.......x.x.x..."],
+    high: ["x...x.x...x.x...", "x.x.x...x.x.x...", "x...x.x.x...x.x."],
+    fill: ["x...x.x.x.x.x...", "x.x.x.x.x......."], dbl: false
   },
   normal: {
-    calm: ["L.......x...x...", "x...x...L.......", "x.....x.x......."],
-    mid:  ["x...x.x.x...x.x.", "x..x..x.x...x...", "x.x.x...x.x.x..."],
-    high: ["x.x.x.x.x...x.x.", "x..x..x.x..x..x.", "x.x.x.x.x.x.x..."],
-    fill: ["x.x.x.x.xxxxx...", "x...x.x.x.xxx.x."], dbl: true
+    calm: ["x...x.x...x.....", "L.......x...x...", "x.....x.x......."],
+    mid:  ["x...x.x...x.x...", "x.x.....x.x.x.x.", "x.x.x...x.x.x..."],
+    high: ["x.x.x.x.x...x.x.", "x.x.x.x.x.x.x...", "x...x.x.x.x.x.x."],
+    fill: ["x.x.x.x.x.x.x.x.", "x.x.x.x.xxx.x..."], dbl: true
   },
   hard: {
-    calm: ["x...x.x.L.......", "x..x..x.x...x.x."],
-    mid:  ["x.x.x.x.x.x.x.x.", "x..x..x.x..x.xx.", "x.xxx.x.x.x.x..."],
-    high: ["x.xxx.x.x.xxx.x.", "xxx.x.x.xxx.x.x.", "x.x.xxx.x.x.xxxx"],
-    fill: ["xxxxxxxxx.x.x...", "x.xxx.xxx.xxxxxx"], dbl: true
+    calm: ["x...x.x.L.......", "x.x.....x.x.x.x."],
+    mid:  ["x.x.x.x.x.x.x.x.", "x.x.x...x.x.x.xx", "x...x.x.x.x.x.x."],
+    high: ["x.x.x.x.x.xxx.x.", "x.xxx.x.x.x.x.x.", "x.x.x.x.xxx.x.x."],
+    fill: ["xxxxx.x.x.x.x...", "x.x.xxx.x.xxx.x."], dbl: true
   }
 };
-const FIGURES = [[0, 1, 2, 3], [3, 2, 1, 0], [0, 2, 1, 3], [3, 1, 2, 0], [0, 3, 1, 2], [1, 2, 0, 3], [1, 0, 2, 3], [2, 3, 1, 0], [0, 1, 0, 2, 1, 3, 2, 3], [3, 2, 3, 1, 2, 0, 1, 0]];
+// lane figures: mostly "hit a lane twice, then step", plus a few plain stairs
+const FIGURES = [[0, 0, 1, 1, 2, 2, 3, 3], [3, 3, 2, 2, 1, 1, 0, 0], [1, 1, 2, 2, 3, 3, 2, 2], [2, 2, 1, 1, 0, 0, 1, 1],
+  [0, 0, 1, 1, 1, 2, 2, 3], [3, 3, 2, 2, 2, 1, 1, 0], [0, 0, 2, 2, 1, 1, 3, 3], [0, 1, 2, 3], [3, 2, 1, 0], [1, 2, 0, 3]];
 function buildGridChart() {
   const beat = G.beat, step = beat / 4, bar = beat * 4, dur = G.dur, P = PATTERNS[G.diff];
   const rnd = rng(hashStr(G.ytId + G.diff)), pick = a => a[Math.floor(rnd() * a.length)];
@@ -856,11 +860,13 @@ function buildGridChart() {
     // phrase of 4 bars: A A' A fill, second phrase mirrors the lanes
     const isFill = phraseBar === 3 && level !== "calm", pat = isFill ? S.fill : phraseBar === 1 ? S.v : S.a;
     const fig = isFill ? S.fillFig : S.fig, mirror = inSec >= 4;
-    let k = phraseBar === 1 ? 1 : 0;
+    let k = phraseBar === 1 ? 2 : 0, lastLane = -1;
     for (let i = 0; i < 16; i++) {
       const ch = pat[i]; if (ch === ".") continue;
       const t = bt + i * step; if (t > dur - 2) break;
-      let lane = fig[k % fig.length]; if (mirror) lane = 3 - lane; k++;
+      let lane = fig[k % fig.length]; k++;
+      if (i > 0 && pat[i - 1] !== "." && lane === lastLane) { lane = fig[k % fig.length]; k++; if (lane === lastLane) lane = (lane + 1) % 4; }   // no same-lane hit a sixteenth apart
+      lastLane = lane; if (mirror) lane = 3 - lane;
       const n = { t, lane, state: 0 };
       if (ch === "L") n.end = t + Math.max(0.3, step * 6);
       notes.push(n);
@@ -1057,12 +1063,15 @@ async function analyze(buffer, onProgress) {
   for (let i = 0; i < frames; i++) env[i] = env[i] / sd + 2 * lenv[i] / sdl;
   await tick();
 
-  // tempo: the lag at which the envelope best repeats, with a mild preference for mid tempos
-  let period = Math.round(fr / 2), bestSc = 0;
-  for (let lag = Math.floor(fr * 60 / 190); lag <= Math.ceil(fr * 60 / 65); lag++) {
-    let a1 = 0, a2 = 0;
-    for (let i = 0; i + 2 * lag < frames; i += 2) { a1 += env[i] * env[i + lag]; a2 += env[i] * env[i + 2 * lag]; }
-    const sc = (a1 + 0.5 * a2) * Math.exp(-0.5 * Math.pow(Math.log2(60 * fr / lag / 120) / 0.8, 2));
+  // tempo: the lag at which the envelope best repeats. Lags are tried in quarter-frame steps (reading the envelope
+  // between frames), because a whole-frame step is 1-3% of a beat and smears the peak of tempos that fall between
+  // two frames. Repeats at 2x and 4x the lag count too: in 4/4 music the true beat also repeats per half bar and bar.
+  const envAt = x => { const i = Math.floor(x), f = x - i; return i + 1 < frames ? env[i] + (env[i + 1] - env[i]) * f : 0; };
+  let period = fr / 2, bestSc = 0;
+  for (let lag = Math.floor(fr * 60 / 190); lag <= Math.ceil(fr * 60 / 65); lag += 0.25) {
+    let a1 = 0, a2 = 0, a4 = 0;
+    for (let i = 0; i + 4 * lag + 1 < frames; i += 2) { const e = env[i]; if (e > 0) { a1 += e * envAt(i + lag); a2 += e * envAt(i + 2 * lag); a4 += e * envAt(i + 4 * lag); } }
+    const sc = (a1 + a2 + a4) * Math.exp(-0.5 * Math.pow(Math.log2(60 * fr / lag / 120) / 0.8, 2));
     if (sc > bestSc) { bestSc = sc; period = lag; }
   }
   await tick();
@@ -1077,7 +1086,7 @@ async function analyze(buffer, onProgress) {
     cum[i] = env[i] + bs; back[i] = bj;
   }
   let end = frames - 1;
-  for (let i = Math.max(0, frames - period); i < frames; i++) if (cum[i] > cum[end]) end = i;
+  for (let i = Math.max(0, frames - Math.round(period)); i < frames; i++) if (cum[i] > cum[end]) end = i;
   const beats = [];
   for (let i = end; i >= 0; i = back[i]) beats.push((i * H + N / 2) / sr);
   beats.reverse();
@@ -1093,13 +1102,13 @@ async function analyze(buffer, onProgress) {
     const t = (i * H + N / 2) / sr;
     // where the onset sits inside its beat: 0 on the beat, 1 half, 2 quarter, 3 off the grid
     while (bi + 1 < beats.length && beats[bi + 1] <= t) bi++;
-    let g = 3;
+    let g = 3, qx = -1;
     if (beats.length > 1 && t >= beats[0] - 0.04 && t <= beats[beats.length - 1] + 0.04) {
       const b0 = beats[bi], len = (bi + 1 < beats.length ? beats[bi + 1] : b0 + (b0 - beats[bi - 1])) - b0;
       const q = (t - b0) / len * 4, qi = Math.round(q);
-      if (Math.abs(q - qi) * len / 4 < 0.04) g = qi % 4 === 0 ? 0 : qi % 2 === 0 ? 1 : 2;
+      if (Math.abs(q - qi) * len / 4 < 0.04) { g = qi % 4 === 0 ? 0 : qi % 2 === 0 ? 1 : 2; qx = bi * 4 + qi; }
     }
-    out.push({ t, s, v: (v - lmean[i]) / gmean, c: cent[i], g, bi });
+    out.push({ t, s, v: (v - lmean[i]) / gmean, c: cent[i], g, bi, qx });
   }
   onProgress(1);
   return { onsets: out, beats, bpm: 60 * fr / period, eng, ft: { sr, H, N } };
@@ -1114,38 +1123,87 @@ function buildChart() {
   const sec = new Map();
   for (const o of G.onsets) { const k = Math.floor(o.bi / 16); if (!sec.has(k)) sec.set(k, [0, 0]); sec.get(k)[o.c > medC ? 1 : 0] += o.v; }
   const lead = o => { const sd = sec.get(Math.floor(o.bi / 16)), side = o.c > medC ? 1 : 0; return sd[side] >= sd[1 - side] ? 1.5 : 1; };
-  const score = o => o.v * d.w[o.g] * lead(o);
+  // rhythm that repeats: inside each 4 bars, the eighth-note slots of the bar that carry a sound in most bars get
+  // priority, so the same one-bar rhythm comes back instead of a different scatter every bar
+  const pop = new Map();
+  for (const o of G.onsets) if (o.qx >= 0 && o.qx % 2 === 0) { const k = Math.floor(o.qx / 64) * 8 + (o.qx >> 1) % 8; pop.set(k, (pop.get(k) || 0) + 1); }
+  const motif = o => {
+    if (!(o.qx >= 0) || o.qx % 2) return 1;
+    const base = Math.floor(o.qx / 64) * 8; let mx = 1;
+    for (let i = 0; i < 8; i++) mx = Math.max(mx, pop.get(base + i) || 0);
+    return 1 + 0.8 * (pop.get(base + (o.qx >> 1) % 8) || 0) / mx;
+  };
+  // loudness is judged against the surrounding 8 seconds, with only a mild pull toward the loud parts of the song:
+  // busy sections get more notes and calm ones fewer, but a quiet passage still gets the notes it needs
+  const os = G.onsets, vn = new Map(); let gm = 0; for (const o of os) gm += o.v; gm = gm / (os.length || 1) || 1;
+  for (let i = 0, lo = 0, hi = 0, sum = 0; i < os.length; i++) {
+    while (hi < os.length && os[hi].t < os[i].t + 4) sum += os[hi++].v;
+    while (os[lo].t < os[i].t - 4) sum -= os[lo++].v;
+    const lm = sum / (hi - lo) || gm;
+    vn.set(os[i], os[i].v / lm * Math.pow(lm / gm, 0.3));
+  }
+  const score = o => vn.get(o) * d.w[o.g] * lead(o) * motif(o);
   const cand = G.onsets.filter(o => o.t > 0.3 && o.t < dur - 0.3).sort((a, b) => score(b) - score(a));
-  // density is capped per 2 seconds, not per song, so loud parts cannot use up the quiet parts' notes
-  const perBucket = Math.ceil(d.nps * 2 * 1.25), bucketN = new Map(), picked = [];
+  // every 2 seconds first gets its own best few notes (half the average density), so no passage is left empty;
+  // the rest of the budget then goes to the best remaining notes anywhere
+  const floorN = Math.ceil(d.nps), seen = new Map(), first = [], rest = [];
+  for (const o of cand) { const bk = Math.floor(o.t / 2), c = seen.get(bk) || 0; seen.set(bk, c + 1); (c < floorN ? first : rest).push(o); }
+  const ordered = first.concat(rest);
+  // the song as a whole averages d.nps notes a second; any 2 seconds may run up to 1.7 times that
+  const maxNotes = Math.round(d.nps * dur), perBucket = Math.ceil(d.nps * 2 * 1.7), bucketN = new Map(), picked = [];
   // best first (loud and on the beat), keeping a minimum gap; bucket index keeps the gap check cheap
   const taken = new Map(), key = t => Math.floor(t / d.minGap);
-  for (const o of cand) {
+  for (const o of ordered) {
+    if (picked.length >= maxNotes) break;
     const bk = Math.floor(o.t / 2); if ((bucketN.get(bk) || 0) >= perBucket) continue;
     const k = key(o.t); let ok = true;
     for (let j = k - 1; j <= k + 1 && ok; j++) { const t = taken.get(j); if (t !== undefined && Math.abs(t - o.t) < d.minGap) ok = false; }
     if (ok) { taken.set(k, o.t); picked.push(o); bucketN.set(bk, (bucketN.get(bk) || 0) + 1); }
   }
   picked.sort((a, b) => a.t - b.t);
-  const onBeat = picked.filter(o => o.g === 0).map(o => o.v).sort((a, b) => b - a);
-  const strong = d.doubles > 0 && onBeat.length ? onBeat[Math.floor(picked.length * d.doubles)] || Infinity : Infinity;
-  // lanes follow the sound: darker sounds (kick, bass) on the left pair, brighter (melody, snare) on the right pair,
-  // and inside each pair the lane follows whether the sound went up or down
-  const cs = picked.map(o => o.c).sort((a, b) => a - b), mid = cs.length ? cs[cs.length >> 1] : 0;
-  const hand = [{ lane: 1, c: 0, t: -9 }, { lane: 2, c: 0, t: -9 }];
-  const notes = []; let prevT = -9;
-  for (const o of picked) {
-    const side = o.c > mid ? 1 : 0, h = hand[side], base = side * 2;
-    let lane = h.lane;
-    if (h.c > 0) {
-      const r = o.c / h.c;
-      lane = r > 1.05 ? base + 1 : r < 0.95 ? base : base + (1 - (h.lane - base));
-      if (lane === h.lane && o.t - h.t < 0.4) lane = base + (1 - (h.lane - base));
+  // Lanes, the way hand-made charts lay them out: notes come in phrases separated by rests; inside a phrase the
+  // same lane is hit two (sometimes three) times and then the figure steps to the next lane, rising when the sound
+  // gets brighter; a phrase ends on an accent, which becomes a two-lane chord.
+  const beatLen = 60 / (G.bpm || 120), phraseGap = Math.max(0.5, beatLen * 0.9);
+  const laneOf = new Array(picked.length).fill(1), accents = [];
+  let phraseNo = 0, soloNo = 0;
+  for (let i = 0; i < picked.length; ) {
+    let j = i; while (j + 1 < picked.length && picked[j + 1].t - picked[j].t <= phraseGap) j++;
+    const n = j - i + 1;
+    if (n === 1) {
+      laneOf[i] = [1, 2, 0, 3][soloNo++ % 4];
+      if (picked[i].g === 0) accents.push([i, 1.5]);
+    } else {
+      const h = i + (n >> 1); let cA = 0, cB = 0;
+      for (let k = i; k < h; k++) cA += picked[k].c; for (let k = h; k <= j; k++) cB += picked[k].c;
+      cA /= h - i; cB /= j - h + 1;
+      let dir = cB > cA * 1.03 ? 1 : cB < cA * 0.97 ? -1 : (phraseNo % 2 ? -1 : 1);
+      let lane = dir > 0 ? phraseNo % 2 : 3 - phraseNo % 2, run = 1;
+      laneOf[i] = lane;
+      for (let k = i + 1; k <= j; k++) {
+        const r = picked[k].c / (picked[k - 1].c || 1), gap = picked[k].t - picked[k - 1].t;
+        const steady = r > 0.97 && r < 1.03;
+        if (gap >= 0.15 && run < (steady ? 3 : 2)) run++;
+        else {
+          let st = r > 1.06 ? 1 : r < 0.94 ? -1 : dir;
+          if (lane + st > 3 || lane + st < 0) st = -st;
+          dir = st; lane += st; run = 1;
+        }
+        laneOf[k] = lane;
+      }
+      if (n >= 3) accents.push([j, 1.5]);
+      for (let k = i; k < j; k++) if (picked[k].g <= 1 && (k === i || picked[k].t - picked[k - 1].t >= 0.2)) accents.push([k, 1]);
+      phraseNo++;
     }
-    notes.push({ t: o.t, lane, state: 0 });
-    if (o.g === 0 && o.v > strong && o.t - prevT > 0.3) notes.push({ t: o.t, lane: (lane + 2) % 4, state: 0 });
-    h.lane = lane; h.c = o.c; h.t = o.t; prevT = o.t;
+    i = j + 1;
   }
+  const chordAt = new Set(accents.sort((x, y) => vn.get(picked[y[0]]) * y[1] - vn.get(picked[x[0]]) * x[1]).slice(0, Math.round(picked.length * d.chords)).map(x => x[0]));
+  const notes = [];
+  picked.forEach((o, k) => {
+    const lane = laneOf[k];
+    notes.push({ t: o.t, lane, state: 0 });
+    if (chordAt.has(k)) notes.push({ t: o.t, lane: lane < 2 ? lane + 2 : lane - 2, state: 0 });
+  });
   // long notes: when nothing else follows for a while and the sound keeps ringing, hold instead of tap
   const E = G.eng, F = G.ft;
   let chart = notes;
