@@ -231,15 +231,18 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <section class="screen" id="calib" hidden>
   <div class="col">
     <h2>싱크 맞추기</h2>
-    <p class="hint" id="calHelp">휴대폰과 이어폰마다 소리가 늦게 나오는 정도가 다릅니다. "딱" 소리가 들릴 때마다 아래를 두드리세요. 10번이면 끝납니다.</p>
-    <button class="tapPad" type="button" id="calPad">
-      <b id="calCount">0 / 10</b>
-      <span id="calInfo">소리에 맞춰 여기를 두드리기</span>
-    </button>
-    <div class="row">
-      <button class="btn ghost" type="button" id="calRetry" style="flex:1">다시 하기</button>
-      <button class="btn ghost" type="button" id="calSkip" style="flex:1">건너뛰기</button>
+    <p class="hint">"딱" 소리가 나는 순간에 막대가 선에 닿아야 합니다. 막대가 소리보다 먼저 닿으면 +, 늦게 닿으면 −를 눌러 맞추세요. 소리에 맞춰 아래를 두드리면 자동으로 맞춰집니다.</p>
+    <canvas id="calCv" style="height:170px;border-radius:14px;border:1px solid var(--line)"></canvas>
+    <div class="stepper">
+      <button type="button" id="calMinus" aria-label="싱크 10ms 줄이기">−</button>
+      <output id="calOut">0 ms</output>
+      <button type="button" id="calPlus" aria-label="싱크 10ms 늘리기">+</button>
     </div>
+    <button class="tapPad" type="button" id="calPad" style="min-height:110px">
+      <b id="calCount" style="font-size:26px">소리에 맞춰 두드리기</b>
+      <span id="calInfo">8번 두드리면 자동으로 맞춥니다</span>
+    </button>
+    <button class="btn big wide" type="button" id="calSave">이대로 저장</button>
   </div>
 </section>
 
@@ -361,8 +364,9 @@ const store = {
 const G = {
   ctx: null, buffer: null, name: "", onsets: null,
   diff: DIFFS[store.get("bd-diff", "normal")] ? store.get("bd-diff", "normal") : "normal",
-  offset: Math.max(-500, Math.min(500, parseInt(store.get("bd-offset", "0"), 10) || 0)),
-  calibrated: store.get("bd-cal", "") === "1", lat: 0,
+  // settings saved before "bd-cal2" were relative to the device's latency report and no longer mean the same thing
+  offset: store.get("bd-cal2", "") === "1" ? Math.max(-500, Math.min(500, parseInt(store.get("bd-offset", "0"), 10) || 0)) : 0,
+  calibrated: store.get("bd-cal2", "") === "1", lat: 0,
   ytOffset: Math.max(-500, Math.min(500, parseInt(store.get("bd-offset-yt", "0"), 10) || 0)),
   speed: [1, 1.25, 1.5, 1.75, 2, 2.5, 3].includes(parseFloat(store.get("bd-speed", "1"))) ? parseFloat(store.get("bd-speed", "1")) : 1,
   mode: "audio", dur: 0, yt: null, ytId: "", beat: 0.5, phase: 0, taps: [],
@@ -1342,60 +1346,79 @@ function ctxNow() {
   }
   return est;
 }
-function reportedLatency() { const l = G.ctx.outputLatency || G.ctx.baseLatency || 0; return l > 0 && l < 0.5 ? l : 0; }
 function songTime() {
   if (G.mode === "yt") return ytClock() - (G.ytAn ? G.offset : G.ytOffset) / 1000;
   return ctxNow() - G.startAt - G.lat - G.offset / 1000;
 }
 
-/* ---------- sync calibration: tap along to a click, measure how late the phone really is ---------- */
-const CAL = { on: false, t0: 0, iv: 0.9, n: 16, need: 10, taps: [], nodes: [], timer: 0, poll: 0 };
+/* ---------- sync calibration: a click repeats while a bar falls to a line; the two must meet ---------- */
+// The device's own latency report is not used: it changes while the audio route settles (Bluetooth especially),
+// which made the same setting mean different things from one start to the next. One number, set here, is all.
+const CAL = { on: false, t0: 0, iv: 0.9, next: 0, taps: [], nodes: [], sched: 0, raf: 0 };
 function stopCalib() {
-  CAL.on = false; clearTimeout(CAL.timer); clearInterval(CAL.poll);
+  CAL.on = false; clearInterval(CAL.sched); cancelAnimationFrame(CAL.raf);
   CAL.nodes.forEach(o => { try { o.stop(); } catch (e) {} }); CAL.nodes = [];
 }
+function calShow() { $("calOut").textContent = (G.offset > 0 ? "+" : "") + G.offset + " ms"; }
 function startCalib() {
   ensureCtx(); stopCalib(); stopSource(); ytCall("pauseVideo");
   show("calib");
-  CAL.taps = []; CAL.on = true; G.lat = reportedLatency(); AK.last = -1;
-  $("calCount").textContent = "0 / " + CAL.need;
-  $("calInfo").textContent = "소리에 맞춰 여기를 두드리기";
-  CAL.t0 = G.ctx.currentTime + 1;
-  for (let i = 0; i < CAL.n; i++) {
-    const o = G.ctx.createOscillator(), g = G.ctx.createGain(), t = CAL.t0 + i * CAL.iv;
-    o.type = "square"; o.frequency.value = 1400;
-    g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-    o.connect(g).connect(G.ctx.destination); o.start(t); o.stop(t + 0.06); CAL.nodes.push(o);
-  }
-  CAL.poll = setInterval(ctxNow, 20);
-  CAL.timer = setTimeout(endCalib, (1 + CAL.n * CAL.iv + 0.4) * 1000);
+  CAL.taps = []; CAL.on = true; AK.last = -1; calShow();
+  $("calInfo").textContent = "8번 두드리면 자동으로 맞춥니다";
+  CAL.t0 = G.ctx.currentTime + 0.6; CAL.next = 0;
+  const schedule = () => {   // keep about 2 seconds of clicks queued
+    while (CAL.t0 + CAL.next * CAL.iv < G.ctx.currentTime + 2) {
+      const o = G.ctx.createOscillator(), g = G.ctx.createGain(), t = CAL.t0 + CAL.next++ * CAL.iv;
+      o.type = "square"; o.frequency.value = 1400;
+      g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      o.connect(g).connect(G.ctx.destination); o.start(t); o.stop(t + 0.06); CAL.nodes.push(o);
+      if (CAL.nodes.length > 12) CAL.nodes.shift();
+    }
+  };
+  schedule(); CAL.sched = setInterval(schedule, 400);
+  const cvs = $("calCv"), g2 = cvs.getContext("2d");
+  const draw = () => {
+    if (!CAL.on) return;
+    const r = cvs.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    if (cvs.width !== Math.round(r.width * dpr)) { cvs.width = Math.round(r.width * dpr); cvs.height = Math.round(r.height * dpr); }
+    g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const w = r.width, h = r.height, lineY = h - 34;
+    // time left until the next click is heard, with the current setting
+    const t = ctxNow() - CAL.t0 - G.offset / 1000, ph = ((t % CAL.iv) + CAL.iv) % CAL.iv, left = CAL.iv - ph;
+    g2.fillStyle = "#171326"; g2.fillRect(0, 0, w, h);
+    const flash = ph < 0.09 ? 1 - ph / 0.09 : 0;
+    g2.fillStyle = flash ? "rgba(255,196,61," + (0.25 + 0.75 * flash) + ")" : "#322c4d"; g2.fillRect(16, lineY - 2, w - 32, 4);
+    const y = lineY - left / CAL.iv * (lineY + 20);
+    g2.fillStyle = "#ff6b4a"; g2.fillRect(w / 2 - 60, y - 9, 120, 18);
+    CAL.raf = requestAnimationFrame(draw);
+  };
+  CAL.raf = requestAnimationFrame(draw);
 }
+function calNudge(d) { G.offset = Math.max(-500, Math.min(500, G.offset + d)); CAL.taps = []; calShow(); $("calInfo").textContent = "8번 두드리면 자동으로 맞춥니다"; }
 function calTap() {
   if (!CAL.on) return;
-  const t = ctxNow() - G.lat - CAL.t0, k = Math.round(t / CAL.iv);
-  if (k < 0 || k >= CAL.n) return;
-  CAL.taps.push((t - k * CAL.iv) * 1000);
-  $("calCount").textContent = CAL.taps.length + " / " + CAL.need;
+  // how far this tap is from the bar meeting the line (as currently set)
+  const t = ctxNow() - CAL.t0 - G.offset / 1000; let e = ((t % CAL.iv) + CAL.iv) % CAL.iv; if (e > CAL.iv / 2) e -= CAL.iv;
+  CAL.taps.push(e * 1000);
   const pad = $("calPad"); pad.classList.add("hit"); setTimeout(() => pad.classList.remove("hit"), 90);
-  if (CAL.taps.length >= CAL.need) endCalib();
+  if (CAL.taps.length < 8) { $("calInfo").textContent = CAL.taps.length + " / 8"; return; }
+  const a = CAL.taps.slice(1).sort((x, y) => x - y), spread = a[Math.floor(a.length * 0.8)] - a[Math.floor(a.length * 0.2)];
+  CAL.taps = [];
+  if (spread > 130) { $("calInfo").textContent = "두드린 간격이 들쭉날쭉합니다. 다시 8번 두드려 주세요"; return; }
+  G.offset = Math.max(-500, Math.min(500, G.offset + Math.round(a[a.length >> 1] / 5) * 5)); calShow();
+  $("calInfo").textContent = "맞췄습니다. 막대가 소리와 같이 닿는지 확인하세요";
 }
-function endCalib() {
-  if (!CAL.on) return;
+function saveCalib() {
   stopCalib();
-  const a = CAL.taps.slice(1).sort((x, y) => x - y);   // first tap is usually a late reaction
-  if (a.length < 5) { $("calInfo").textContent = "두드린 횟수가 부족합니다. '다시 하기'를 눌러 주세요"; return; }
-  const spread = a[Math.floor(a.length * 0.8)] - a[Math.floor(a.length * 0.2)];
-  if (spread > 130) { $("calInfo").textContent = "두드린 간격이 들쭉날쭉합니다. '다시 하기'를 눌러 주세요"; return; }
-  G.offset = Math.max(-500, Math.min(500, Math.round(a[a.length >> 1] / 5) * 5));
-  G.calibrated = true; store.set("bd-offset", String(G.offset)); store.set("bd-cal", "1");
+  G.calibrated = true; store.set("bd-offset", String(G.offset)); store.set("bd-cal2", "1");
   show("ready");
-  $("readyMsg").textContent = "싱크를 " + (G.offset > 0 ? "+" : "") + G.offset + " ms로 맞췄습니다. 이어폰을 바꾸면 다시 맞춰 주세요.";
+  $("readyMsg").textContent = "싱크를 " + (G.offset > 0 ? "+" : "") + G.offset + " ms로 저장했습니다. 이어폰을 바꾸면 다시 맞춰 주세요.";
 }
 
 function startGame() {
   ensureCtx();
   if (!G.calibrated && !(G.mode === "yt" && !G.ytAn)) { startCalib(); return; }
-  $("readyMsg").textContent = ""; G.lat = reportedLatency(); AK.last = -1;
+  $("readyMsg").textContent = ""; G.lat = 0; AK.last = -1;
   stopSource();
   G.chart.forEach(n => { n.state = 0; n.moved = false; });
   const lanes = [[], [], [], []];
@@ -1710,7 +1733,7 @@ function finish() {
   let dg = "";
   if (G.mode !== "yt" && G.ctx) {
     const k = G.clk, rate = k && k.ok ? ((G.ctx.currentTime - k.c) / ((performance.now() - k.p) / 1000) * 100).toFixed(2) + "%" : "-";
-    dg = "진단 · " + G.ctx.sampleRate + "Hz · 곡 " + G.buffer.sampleRate + "Hz · 지연 " + Math.round(G.lat * 1000) + "ms · 싱크 " + G.offset + "ms · 시계 " + rate + " · " + Math.round(G.bpm) + "BPM";
+    dg = "진단 · " + G.ctx.sampleRate + "Hz · 곡 " + G.buffer.sampleRate + "Hz · 지연 " + Math.round(G.lat * 1000) + "ms · 기기보고 " + Math.round((G.ctx.outputLatency || 0) * 1000) + "/" + Math.round((G.ctx.baseLatency || 0) * 1000) + "ms · 싱크 " + G.offset + "ms · 시계 " + rate + " · " + Math.round(G.bpm) + "BPM";
   }
   $("diag").textContent = dg;
   const clean = !P.failed && P.m === 0;
@@ -1755,8 +1778,9 @@ $("lsCancel").addEventListener("click", () => finishListen(true));
 $("calPad").addEventListener("pointerdown", e => { e.preventDefault(); calTap(); });
 $("calPad").addEventListener("keydown", e => { if (!e.repeat && (e.code === "Space" || e.code === "Enter")) { e.preventDefault(); calTap(); } });
 $("calBtn").addEventListener("click", startCalib);
-$("calRetry").addEventListener("click", startCalib);
-$("calSkip").addEventListener("click", () => { stopCalib(); G.calibrated = true; store.set("bd-cal", "1"); show("ready"); });
+$("calMinus").addEventListener("click", () => calNudge(-10));
+$("calPlus").addEventListener("click", () => calNudge(10));
+$("calSave").addEventListener("click", saveCalib);
 $("tempoReset").addEventListener("click", () => { G.taps = []; syncTempoUi(); });
 $("tempoBack").addEventListener("click", () => { $("tempoMsg").textContent = ""; leaveYoutube(); show("home"); });
 $("pauseBtn").addEventListener("click", pause);
