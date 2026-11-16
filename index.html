@@ -99,6 +99,7 @@ h2{font-family:var(--font-display);font-weight:400;font-size:30px;line-height:1.
 #ytDock{flex:none;width:100%;max-width:520px;margin:0 auto;height:min(56.25vw,30vh,292px);background:#000}
 #ytDock[hidden]{display:none}
 #ytDock iframe{display:block;width:100%;height:100%;border:0}
+#ytDock video{display:block;width:100%;height:100%;object-fit:contain;background:#000}
 .tapPad{flex:1;min-height:150px;border-radius:18px;border:2px dashed var(--line);background:var(--panel);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;touch-action:none}
 .tapPad.hit{border-color:var(--lane-2);background:#2a2440}
@@ -142,8 +143,8 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
         <button class="btn" type="submit" id="loadUrlBtn">불러오기</button>
       </div>
       <div class="or">또는</div>
-      <button class="btn ghost wide" type="button" id="fileBtn">휴대폰에 있는 노래 파일 고르기</button>
-      <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.ogg,.flac,.aac" hidden>
+      <button class="btn ghost wide" type="button" id="fileBtn">휴대폰에 있는 노래·동영상 파일 고르기</button>
+      <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.m4a,.wav,.ogg,.flac,.aac,.mp4,.mov,.m4v,.webm,.mkv" hidden>
       <p class="msg" id="homeMsg" role="status"></p>
     </form>
 
@@ -152,7 +153,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
     <div class="hint">
       <ul>
         <li>유튜브 링크는 영상을 틀어 놓고 박자를 몇 번 두드리면 그 빠르기로 노트를 만듭니다.</li>
-        <li>mp3 같은 오디오 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
+        <li>mp3 같은 오디오 파일과 mp4 같은 동영상 파일은 소리를 직접 분석해서 노트를 만듭니다.</li>
         <li>긴 노트는 끝까지 누르고 있어야 합니다. 놓치면 게이지가 줄고, 바닥나면 곡이 멈춥니다.</li>
         <li>아이폰은 무음 스위치를 꺼야 소리가 납니다.</li>
         <li>블루투스 이어폰은 소리가 늦게 들려서, 시작 전에 싱크를 맞춰 주세요.</li>
@@ -322,7 +323,7 @@ const SCREENS = ["home", "loading", "tempo", "calib", "ready", "game", "results"
 function show(id) {
   SCREENS.forEach(s => { $(s).hidden = s !== id; });
   if (id === "ready") syncReadyUi();
-  $("ytDock").hidden = !(G.mode === "yt" && (id === "tempo" || id === "game"));
+  $("ytDock").hidden = !((G.mode === "yt" && (id === "tempo" || id === "game")) || (G.videoEl && id === "game"));
   if (G.mode === "yt" && id !== "tempo" && id !== "game" && id !== "loading") ytCall("pauseVideo");
 }
 function homeMsg(t) { $("homeMsg").textContent = t || ""; }
@@ -378,17 +379,24 @@ async function loadFromUrl(url) {
 
 async function loadFromFile(file) {
   homeMsg(""); ensureCtx(); leaveYoutube();
-  show("loading"); progress(0.05, "노래를 불러오는 중", "파일을 읽고 있어요");
+  const isVideo = /^video\//.test(file.type) || /\.(mp4|mov|m4v|webm|mkv)$/i.test(file.name);
+  if (file.size > 500 * 1024 * 1024) { homeMsg("파일이 너무 큽니다(500MB 초과). 더 짧거나 화질이 낮은 파일로 해보세요."); return; }
+  show("loading"); progress(0.05, isVideo ? "동영상을 불러오는 중" : "노래를 불러오는 중", "파일을 읽고 있어요");
   let ab;
   try { ab = await file.arrayBuffer(); }
   catch (e) { show("home"); homeMsg("파일을 읽지 못했습니다. 다시 골라 주세요."); return; }
-  await prepare(ab, file.name.replace(/\.[a-z0-9]+$/i, ""));
+  if (isVideo) attachVideo(file);
+  await prepare(ab, file.name.replace(/\.[a-z0-9]+$/i, ""), isVideo);
 }
 
-async function prepare(ab, name) {
+async function prepare(ab, name, isVideo) {
   let buf;
-  try { progress(0.15, "노래를 불러오는 중", "소리를 푸는 중이에요"); buf = await decode(ab); }
-  catch (e) { show("home"); homeMsg("오디오로 열 수 없는 파일입니다. mp3, m4a, wav 파일로 다시 해보세요."); return; }
+  try { progress(0.15, isVideo ? "동영상을 불러오는 중" : "노래를 불러오는 중", "소리를 푸는 중이에요"); buf = await decode(ab); }
+  catch (e) {
+    clearVideo(); show("home");
+    homeMsg(isVideo ? "이 동영상에서 소리를 읽지 못했습니다. 소리가 없는 영상이거나 지원하지 않는 형식입니다. mp4 파일로 다시 해보세요." : "오디오로 열 수 없는 파일입니다. mp3, m4a, wav 파일로 다시 해보세요.");
+    return;
+  }
   await useBuffer(buf, name);
 }
 
@@ -479,7 +487,32 @@ function renderDemo() {
 function ytCall(fn, ...a) { try { if (G.yt && G.yt[fn]) return G.yt[fn](...a); } catch (e) {} }
 function leaveYoutube() {
   if (G.yt) { ytCall("destroy"); G.yt = null; }
+  clearVideo();
   $("ytDock").innerHTML = ""; G.mode = "audio";
+}
+/* ---------- video files: the sound is analyzed like any song, the picture plays muted above the lanes ---------- */
+function clearVideo() {
+  if (G.videoEl) { try { G.videoEl.pause(); } catch (e) {} G.videoEl.removeAttribute("src"); G.videoEl = null; }
+  if (G.videoUrl) { try { URL.revokeObjectURL(G.videoUrl); } catch (e) {} G.videoUrl = null; }
+}
+function attachVideo(file) {
+  try {
+    const v = document.createElement("video");
+    v.muted = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.setAttribute("muted", ""); v.preload = "auto";
+    G.videoUrl = URL.createObjectURL(file); v.src = G.videoUrl;
+    v.addEventListener("error", () => { if (G.videoEl === v) { clearVideo(); $("ytDock").innerHTML = ""; $("ytDock").hidden = true; resize(); } });
+    $("ytDock").innerHTML = ""; $("ytDock").appendChild(v);
+    G.videoEl = v;
+  } catch (e) { clearVideo(); }
+}
+// keep the muted picture on the heard time of the song; the audio stays the master clock
+let videoSeekAt = 0;
+function syncVideo(t, now) {
+  const v = G.videoEl; if (!v) return;
+  if (t < 0) { if (!v.paused) v.pause(); if (v.currentTime > 0.05) v.currentTime = 0; return; }
+  if (v.ended || t >= (v.duration || Infinity)) return;
+  if (v.paused) { if (now - videoSeekAt > 500) { videoSeekAt = now; v.currentTime = t; const pr = v.play(); if (pr && pr.catch) pr.catch(() => {}); } return; }
+  if (Math.abs(v.currentTime - t) > 0.25 && now - videoSeekAt > 2000) { videoSeekAt = now; v.currentTime = t; }
 }
 let ytApi = null;
 function loadYtApi() {
@@ -996,6 +1029,7 @@ function startGame() {
   requestAnimationFrame(frame);
 }
 function stopSource() {
+  if (G.videoEl) { try { G.videoEl.pause(); } catch (e) {} }
   if (G.source) { try { G.source.stop(); } catch (e) {} try { G.source.disconnect(); } catch (e) {} G.source = null; }
 }
 
@@ -1104,6 +1138,7 @@ function frame() {
   }
   if (P.life <= 0) { P.failed = true; finish(); return; }
   const inFever = t < P.feverUntil, AP = APPROACH / G.speed;
+  if (G.videoEl && G.mode !== "yt") syncVideo(t, now);
 
   const { w, h, fx, fw, lw, hitY } = V;
   c2.setTransform(V.dpr, 0, 0, V.dpr, 0, 0);
@@ -1209,6 +1244,7 @@ function pause() {
   if (!G.running || G.paused) return;
   G.paused = true; if (G.clk) G.clk.ok = false;
   if (G.mode === "yt") ytCall("pauseVideo"); else G.ctx.suspend().catch(() => {});
+  if (G.videoEl) { try { G.videoEl.pause(); } catch (e) {} }
   $("pauseOverlay").hidden = false;
 }
 function resume() {
