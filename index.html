@@ -40,6 +40,8 @@ button{cursor:pointer;border:0;background:none}
 .screen{flex:1;min-height:0;overflow-y:auto;display:flex;justify-content:center}
 .screen[hidden]{display:none}
 .col{width:100%;max-width:440px;padding:28px 20px 32px;display:flex;flex-direction:column;gap:20px}
+.col>*{flex-shrink:0}
+.col>.tapPad{flex-shrink:1}
 
 /* home */
 .brand{display:flex;flex-direction:column;gap:6px;padding-top:8px}
